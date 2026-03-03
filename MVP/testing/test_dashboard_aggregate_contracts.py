@@ -29,6 +29,11 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
         cls.payload = parse_dashboard_data_js(cls.dashboard_data_path)
         cls.runs = [run for run in (cls.payload.get("runs") or []) if isinstance(run, dict)]
         cls.success_runs = [run for run in cls.runs if run.get("run_status") == "success"]
+        cls.has_success_runs = len(cls.success_runs) > 0
+
+    def require_success_runs(self) -> None:
+        if not self.has_success_runs:
+            self.skipTest("No successful runs available yet; generate outputs first.")
 
     def as_float(self, value: Any) -> float | None:
         if isinstance(value, bool):
@@ -47,6 +52,7 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
             dt.datetime.fromisoformat(generated_at)
 
     def test_all_success_runs_have_mandatory_flags(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             with self.subTest(run_id=run_id):
@@ -54,6 +60,7 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
                     self.assertIsInstance(run.get(key), bool, f"{key} must be bool in {run_id}")
 
     def test_mapping_info_shape(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             info = run.get("mapping_info")
@@ -65,6 +72,7 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
                     self.assertIn(key, info, f"mapping_info missing {key} in {run_id}")
 
     def test_explain_coverage_shape(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             coverage = run.get("explain_coverage")
@@ -87,7 +95,9 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
                 self.assertIsInstance(warnings, list, f"runtime_warnings must be list in {run_id}")
 
     def test_distribution_fields_are_non_negative_ints(self) -> None:
+        self.require_success_runs()
         dist_fields = (
+            "our_entity_size_distribution",
             "entity_size_distribution",
             "entity_pairings_distribution",
             "record_pairing_degree_distribution",
@@ -106,6 +116,35 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
                         self.assertIsInstance(value, int, f"{field} values must be ints in {run_id}")
                         if isinstance(value, int):
                             self.assertGreaterEqual(value, 0, f"{field} values must be >= 0 in {run_id}")
+
+    def test_new_metric_fields_shape(self) -> None:
+        self.require_success_runs()
+        int_fields = (
+            "our_entities_formed",
+            "their_entities_formed",
+            "our_grouped_members",
+            "their_grouped_members",
+        )
+        pct_fields = (
+            "our_match_pct",
+            "their_match_pct",
+            "our_match_gain_loss_pct",
+            "their_match_gain_loss_pct",
+            "our_entity_gain_loss_pct",
+            "their_entity_gain_loss_pct",
+        )
+        for run in self.success_runs:
+            run_id = str(run.get("run_id") or "")
+            with self.subTest(run_id=run_id):
+                for field in int_fields:
+                    value = run.get(field)
+                    self.assertTrue(value is None or isinstance(value, int), f"{field} must be int|None in {run_id}")
+                for field in pct_fields:
+                    value = run.get(field)
+                    self.assertTrue(
+                        value is None or isinstance(value, (int, float)),
+                        f"{field} must be number|None in {run_id}",
+                    )
 
     def test_artifact_relative_paths_unique_per_run(self) -> None:
         for run in self.runs:
@@ -127,10 +166,12 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
                         self.assertIn(run_id, value, f"{key} must include run_id in {run_id}")
 
     def test_aggregate_total_input_matches_success_runs(self) -> None:
+        self.require_success_runs()
         total_input = sum(int(run.get("records_input")) for run in self.success_runs if as_int(run.get("records_input")) is not None)
         self.assertGreater(total_input, 0)
 
     def test_aggregate_precision_formula_is_valid(self) -> None:
+        self.require_success_runs()
         tp = sum(int(run.get("true_positive")) for run in self.success_runs if as_int(run.get("true_positive")) is not None)
         fp = sum(int(run.get("false_positive")) for run in self.success_runs if as_int(run.get("false_positive")) is not None)
         denominator = tp + fp
@@ -140,6 +181,7 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
         self.assertLessEqual(precision, 100.0)
 
     def test_aggregate_coverage_formula_is_valid(self) -> None:
+        self.require_success_runs()
         our_tp = sum(int(run.get("our_true_positive")) for run in self.success_runs if as_int(run.get("our_true_positive")) is not None)
         our_total = sum(int(run.get("our_true_pairs_total")) for run in self.success_runs if as_int(run.get("our_true_pairs_total")) is not None)
         self.assertGreater(our_total, 0)
@@ -148,6 +190,7 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
         self.assertLessEqual(coverage, 100.0)
 
     def test_aggregate_false_positive_rate_formula_is_valid(self) -> None:
+        self.require_success_runs()
         fp = sum(int(run.get("false_positive")) for run in self.success_runs if as_int(run.get("false_positive")) is not None)
         predicted = sum(
             int(run.get("predicted_pairs_labeled"))
@@ -160,6 +203,7 @@ class DashboardAggregateContractsTestCase(unittest.TestCase):
         self.assertLessEqual(fp_rate, 100.0)
 
     def test_aggregate_match_gain_formula_is_valid(self) -> None:
+        self.require_success_runs()
         extra = sum(
             int(run.get("extra_true_matches_found"))
             for run in self.success_runs

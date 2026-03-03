@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run MVP pipeline for all JSON samples in a directory."""
+"""Run MVP pipeline for one or more sample inputs in a directory."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run MVP pipeline in batch for sample JSON inputs")
+    parser = argparse.ArgumentParser(description="Run MVP pipeline for sample JSON/JSONL inputs")
     parser.add_argument("--sample-dir", default="sample_input", help="Directory with input JSON samples")
     parser.add_argument("--execution-mode", choices=["auto", "docker", "local"], default="auto")
     parser.add_argument("--senzing-env", default=None, help="Optional setupEnv path for local mode")
@@ -24,19 +24,21 @@ def now_timestamp() -> str:
     return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def detect_input_array_key(sample_path: Path) -> str | None:
+def classify_input(sample_path: Path) -> tuple[bool, str | None]:
+    if sample_path.suffix.lower() == ".jsonl":
+        return True, None
     try:
         payload = json.loads(sample_path.read_text(encoding="utf-8"))
     except Exception:
-        return None
+        return False, None
 
     if isinstance(payload, list):
-        return None
+        return True, None
     if isinstance(payload, dict):
         for candidate in ["records", "data", "items"]:
             if isinstance(payload.get(candidate), list):
-                return candidate
-    return None
+                return True, candidate
+    return False, None
 
 
 def run_one(
@@ -72,17 +74,29 @@ def main() -> int:
         print(f"ERROR: sample dir not found: {sample_dir}", file=sys.stderr)
         return 2
 
-    samples = sorted(path for path in sample_dir.glob("*.json") if path.is_file())
-    if not samples:
-        print(f"ERROR: no .json files found in {sample_dir}", file=sys.stderr)
+    discovered = sorted(
+        path
+        for pattern in ("*.json", "*.jsonl")
+        for path in sample_dir.glob(pattern)
+        if path.is_file()
+    )
+    sample_entries: list[tuple[Path, str | None]] = []
+    for sample_path in discovered:
+        supported, array_key = classify_input(sample_path)
+        if supported:
+            sample_entries.append((sample_path, array_key))
+        else:
+            print(f"Skipping unsupported file: {sample_path.name}")
+
+    if not sample_entries:
+        print(f"ERROR: no .json/.jsonl files found in {sample_dir}", file=sys.stderr)
         return 2
 
     started_at = dt.datetime.now().isoformat(timespec="seconds")
     results: list[dict[str, object]] = []
 
-    for sample in samples:
+    for sample, input_array_key in sample_entries:
         print(f"Running: {sample.name}")
-        input_array_key = detect_input_array_key(sample)
         exit_code, tail = run_one(mvp_root, sample, args.execution_mode, args.senzing_env, input_array_key)
         status = "ok" if exit_code == 0 else "failed"
         print(f"  -> {status} (exit {exit_code})")

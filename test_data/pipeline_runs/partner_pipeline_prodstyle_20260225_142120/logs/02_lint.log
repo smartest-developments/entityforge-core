@@ -1,9 +1,0 @@
-STEP: lint
-COMMAND: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/simones/Developer/mapper-ai-main/senzing/tools/lint_senzing_json.py /Users/simones/Developer/mapper-ai-main/test_data/pipeline_runs/partner_pipeline_prodstyle_20260225_142120/output.jsonl
-EXIT_CODE: 0
-DURATION_SECONDS: 0.021
-
---- STDOUT ---
-OK: All files passed
-
---- STDERR ---

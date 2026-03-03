@@ -1,9 +1,0 @@
-STEP: stakeholder_report
-COMMAND: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/simones/Developer/mapper-ai-main/senzing/tools/sz_stakeholder_report.py /Users/simones/Developer/mapper-ai-main/test_data/pipeline_runs/partner_pipeline_prodstyle_20260225_141523/output.jsonl /Users/simones/Developer/mapper-ai-main/test_data/pipeline_runs/partner_pipeline_prodstyle_20260225_141523/stakeholder_summary.md --analyzer-md /Users/simones/Developer/mapper-ai-main/test_data/pipeline_runs/partner_pipeline_prodstyle_20260225_141523/analysis.md
-EXIT_CODE: 0
-DURATION_SECONDS: 0.032
-
---- STDOUT ---
-Stakeholder report written to /Users/simones/Developer/mapper-ai-main/test_data/pipeline_runs/partner_pipeline_prodstyle_20260225_141523/stakeholder_summary.md
-
---- STDERR ---
