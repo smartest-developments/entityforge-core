@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -72,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable fast mode (skip snapshot/export/explain/comparison)",
     )
+    parser.add_argument(
+        "--keep-projects-root",
+        action="store_true",
+        help="Keep Senzing projects under --projects-root (default behavior is cleanup after run)",
+    )
     return parser.parse_args()
 
 
@@ -118,6 +124,22 @@ def build_mapping_summary_path(output_dir: Path) -> Path:
     return output_dir / f"mapping_summary_from_input_{timestamp}.json"
 
 
+def cleanup_projects_root(projects_root: Path) -> tuple[int, int]:
+    """Delete all contents under projects root to avoid disk growth."""
+    removed = 0
+    failed = 0
+    for item in projects_root.iterdir():
+        try:
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+            removed += 1
+        except Exception:  # pylint: disable=broad-exception-caught
+            failed += 1
+    return removed, failed
+
+
 def main() -> int:
     args = parse_args()
     repo_root = Path(__file__).resolve().parents[2]
@@ -134,129 +156,138 @@ def main() -> int:
     mapper_script = repo_root / "senzing" / "tools" / "partner_json_to_senzing.py"
     e2e_wrapper = repo_root / "senzing" / "workflows" / "e2e_runner" / "run_senzing_e2e.py"
 
-    if args.input_json:
-        input_json = Path(args.input_json).resolve()
-        if not input_json.exists():
-            print(f"ERROR: input JSON not found: {input_json}", file=sys.stderr)
+    try:
+        if args.input_json:
+            input_json = Path(args.input_json).resolve()
+            if not input_json.exists():
+                print(f"ERROR: input JSON not found: {input_json}", file=sys.stderr)
+                return 2
+
+            summary_path = build_mapping_summary_path(output_dir)
+            suffix = summary_path.stem.replace("mapping_summary_from_input_", "")
+            mapped_output_jsonl = (output_dir / f"partner_output_senzing_from_input_{suffix}.jsonl").resolve()
+            field_map_json = (output_dir / f"field_map_from_input_{suffix}.json").resolve()
+
+            mapper_cmd = [
+                sys.executable,
+                str(mapper_script),
+                str(input_json),
+                str(mapped_output_jsonl),
+                "--data-source",
+                str(args.data_source),
+                "--tax-id-type",
+                str(args.tax_id_type),
+                "--write-field-map",
+                str(field_map_json),
+            ]
+            if args.input_array_key:
+                mapper_cmd.extend(["--array-key", str(args.input_array_key)])
+            if args.include_unmapped_source_fields:
+                mapper_cmd.append("--include-unmapped-source-fields")
+            run_subprocess(mapper_cmd, repo_root)
+
+            mapping_summary = {
+                "mode": "input_json",
+                "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+                "input_json": str(input_json),
+                "mapped_output_jsonl": str(mapped_output_jsonl),
+                "field_map_json": str(field_map_json),
+                "data_source": args.data_source,
+                "tax_id_type": args.tax_id_type,
+                "input_array_key": args.input_array_key,
+                "include_unmapped_source_fields": bool(args.include_unmapped_source_fields),
+            }
+            summary_path.write_text(json.dumps(mapping_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        else:
+            summaries_before = set(output_dir.glob("generation_summary_*.json"))
+            generate_cmd = [
+                sys.executable,
+                str(generation_script),
+                "--records",
+                str(args.records),
+                "--person-ratio",
+                str(args.person_ratio),
+                "--ipg-rate",
+                str(args.ipg_rate),
+                "--seed",
+                str(args.seed),
+                "--sample-dir",
+                str(Path(args.sample_dir)),
+                "--output-dir",
+                str(Path(args.output_dir)),
+            ]
+            run_subprocess(generate_cmd, repo_root)
+
+            summary_path = find_new_generation_summary(output_dir, summaries_before)
+            generation_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            mapped_output_jsonl = Path(str(generation_summary.get("mapped_output_jsonl") or "")).resolve()
+
+        if not mapped_output_jsonl.exists():
+            print(f"ERROR: mapped_output_jsonl not found: {mapped_output_jsonl}", file=sys.stderr)
             return 2
 
-        summary_path = build_mapping_summary_path(output_dir)
-        suffix = summary_path.stem.replace("mapping_summary_from_input_", "")
-        mapped_output_jsonl = (output_dir / f"partner_output_senzing_from_input_{suffix}.jsonl").resolve()
-        field_map_json = (output_dir / f"field_map_from_input_{suffix}.json").resolve()
+        runs_before = set(path for path in runs_root.glob(f"{args.run_name_prefix}_*") if path.is_dir())
+        container_input_jsonl = to_container_path(repo_root, mapped_output_jsonl)
+        container_runs_root = to_container_path(repo_root, runs_root)
+        container_projects_root = to_container_path(repo_root, projects_root)
 
-        mapper_cmd = [
-            sys.executable,
-            str(mapper_script),
-            str(input_json),
-            str(mapped_output_jsonl),
-            "--data-source",
-            str(args.data_source),
-            "--tax-id-type",
-            str(args.tax_id_type),
-            "--write-field-map",
-            str(field_map_json),
+        docker_cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "--platform",
+            args.docker_platform,
+            "-v",
+            f"{repo_root}:/workspace",
+            "-w",
+            "/workspace",
+            args.docker_image,
+            "python3",
+            str(to_container_path(repo_root, e2e_wrapper)),
+            str(container_input_jsonl),
+            "--output-root",
+            str(container_runs_root),
+            "--run-name-prefix",
+            args.run_name_prefix,
+            "--project-parent-dir",
+            str(container_projects_root),
+            "--project-name-prefix",
+            args.project_name_prefix,
+            "--max-explain-records",
+            "0",
+            "--max-explain-pairs",
+            "0",
+            "--step-timeout-seconds",
+            str(args.step_timeout_seconds),
         ]
-        if args.input_array_key:
-            mapper_cmd.extend(["--array-key", str(args.input_array_key)])
-        if args.include_unmapped_source_fields:
-            mapper_cmd.append("--include-unmapped-source-fields")
-        run_subprocess(mapper_cmd, repo_root)
+        if args.keep_loader_temp_files:
+            docker_cmd.append("--keep-loader-temp-files")
+        if args.fast_mode:
+            docker_cmd.extend(["--fast-mode", "--data-sources", "PARTNERS"])
 
-        mapping_summary = {
-            "mode": "input_json",
-            "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
-            "input_json": str(input_json),
-            "mapped_output_jsonl": str(mapped_output_jsonl),
-            "field_map_json": str(field_map_json),
-            "data_source": args.data_source,
-            "tax_id_type": args.tax_id_type,
-            "input_array_key": args.input_array_key,
-            "include_unmapped_source_fields": bool(args.include_unmapped_source_fields),
-        }
-        summary_path.write_text(json.dumps(mapping_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    else:
-        summaries_before = set(output_dir.glob("generation_summary_*.json"))
-        generate_cmd = [
-            sys.executable,
-            str(generation_script),
-            "--records",
-            str(args.records),
-            "--person-ratio",
-            str(args.person_ratio),
-            "--ipg-rate",
-            str(args.ipg_rate),
-            "--seed",
-            str(args.seed),
-            "--sample-dir",
-            str(Path(args.sample_dir)),
-            "--output-dir",
-            str(Path(args.output_dir)),
-        ]
-        run_subprocess(generate_cmd, repo_root)
+        run_subprocess(docker_cmd, repo_root)
 
-        summary_path = find_new_generation_summary(output_dir, summaries_before)
-        generation_summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        mapped_output_jsonl = Path(str(generation_summary.get("mapped_output_jsonl") or "")).resolve()
+        run_dir = find_new_run_dir(runs_root, runs_before, args.run_name_prefix)
+        run_summary_path = run_dir / "run_summary.json"
+        run_summary = json.loads(run_summary_path.read_text(encoding="utf-8"))
+        artifacts = run_summary.get("artifacts", {})
 
-    if not mapped_output_jsonl.exists():
-        print(f"ERROR: mapped_output_jsonl not found: {mapped_output_jsonl}", file=sys.stderr)
-        return 2
-
-    runs_before = set(path for path in runs_root.glob(f"{args.run_name_prefix}_*") if path.is_dir())
-    container_input_jsonl = to_container_path(repo_root, mapped_output_jsonl)
-    container_runs_root = to_container_path(repo_root, runs_root)
-    container_projects_root = to_container_path(repo_root, projects_root)
-
-    docker_cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "--platform",
-        args.docker_platform,
-        "-v",
-        f"{repo_root}:/workspace",
-        "-w",
-        "/workspace",
-        args.docker_image,
-        "python3",
-        str(to_container_path(repo_root, e2e_wrapper)),
-        str(container_input_jsonl),
-        "--output-root",
-        str(container_runs_root),
-        "--run-name-prefix",
-        args.run_name_prefix,
-        "--project-parent-dir",
-        str(container_projects_root),
-        "--project-name-prefix",
-        args.project_name_prefix,
-        "--max-explain-records",
-        "0",
-        "--max-explain-pairs",
-        "0",
-        "--step-timeout-seconds",
-        str(args.step_timeout_seconds),
-    ]
-    if args.keep_loader_temp_files:
-        docker_cmd.append("--keep-loader-temp-files")
-    if args.fast_mode:
-        docker_cmd.extend(["--fast-mode", "--data-sources", "PARTNERS"])
-
-    run_subprocess(docker_cmd, repo_root)
-
-    run_dir = find_new_run_dir(runs_root, runs_before, args.run_name_prefix)
-    run_summary_path = run_dir / "run_summary.json"
-    run_summary = json.loads(run_summary_path.read_text(encoding="utf-8"))
-    artifacts = run_summary.get("artifacts", {})
-
-    print("")
-    print("Unified pipeline completed.")
-    print(f"Input summary: {summary_path}")
-    print(f"Run summary: {run_summary_path}")
-    print(f"Management summary (md): {artifacts.get('management_summary_md')}")
-    print(f"Ground truth quality (md): {artifacts.get('ground_truth_match_quality_md')}")
-    print(f"Run registry CSV: {artifacts.get('run_registry_csv')}")
-    return 0
+        print("")
+        print("Unified pipeline completed.")
+        print(f"Input summary: {summary_path}")
+        print(f"Run summary: {run_summary_path}")
+        print(f"Management summary (md): {artifacts.get('management_summary_md')}")
+        print(f"Ground truth quality (md): {artifacts.get('ground_truth_match_quality_md')}")
+        print(f"Run registry CSV: {artifacts.get('run_registry_csv')}")
+        return 0
+    finally:
+        if not args.keep_projects_root and projects_root.exists():
+            removed, failed = cleanup_projects_root(projects_root)
+            print("")
+            print(
+                f"Projects root cleanup completed: {projects_root} "
+                f"(removed: {removed}, failed: {failed})"
+            )
 
 
 if __name__ == "__main__":

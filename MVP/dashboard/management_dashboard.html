@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quality Dashboard</title>
+    <link rel="stylesheet" href="./tabler.min.css">
+    <link rel="stylesheet" href="./management_dashboard.css">
+  </head>
+  <body>
+    <div class="page">
+      <div class="page-wrapper">
+        <div class="page-body">
+          <div class="container-xl">
+            <div class="row row-cards mb-2 controls-row">
+              <div class="col-12">
+                <div class="card controls-card">
+                  <div class="card-body controls-card-body">
+                    <label class="form-label">Select output</label>
+                    <select class="form-select" id="runSelector" aria-label="Run selector"></select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row row-cards mb-2">
+              <div class="col-12">
+                <div class="card controls-card input-records-card">
+                  <div class="card-body controls-card-body input-records-card-body">
+                    <div class="input-records-label">Input Records</div>
+                    <div class="input-records-value" id="inputRecordsValue">n/a</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row row-cards mb-2" id="comparisonCards">
+              <div class="col-12 col-xxl-6">
+                <div class="card comparison-card comparison-card-our">
+                  <div class="card-header">
+                    <h3 class="card-title">Our Metrics</h3>
+                  </div>
+                  <div class="card-body">
+                    <div class="row row-cards" id="ourMetricCards"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-12 col-xxl-6">
+                <div class="card comparison-card">
+                  <div class="card-header">
+                    <h3 class="card-title">Their Metrics</h3>
+                  </div>
+                  <div class="card-body">
+                    <div class="row row-cards" id="theirMetricCards"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row row-cards mb-2">
+              <div class="col-xl-4">
+                <div class="card">
+                  <div class="card-header">
+                    <h3 class="card-title">Entity Size Distribution</h3>
+                  </div>
+                  <div class="card-body chart-md">
+                    <canvas id="entitySizeChart"></canvas>
+                  </div>
+                </div>
+              </div>
+              <div class="col-xl-8">
+                <div class="card">
+                  <div class="card-header">
+                    <h3 class="card-title">Top Match Keys</h3>
+                  </div>
+                  <div class="card-body match-keys-body">
+                    <div id="matchKeyList" class="match-key-list"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="./tabler.min.js"></script>
+    <script src="./chart.umd.js"></script>
+    <script src="./management_dashboard_data.js"></script>
+    <script src="./management_dashboard.js"></script>
+  </body>
+</html>

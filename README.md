@@ -85,6 +85,9 @@ If you do not pass `--input-json`, it auto-generates a realistic sample:
 python3 senzing/tools/run_sample_to_management.py --records 500
 ```
 
+By default this command now cleans `--projects-root` at the end of each run to prevent disk growth.
+If you need to inspect project internals for debugging, add `--keep-projects-root`.
+
 If the input root is an object containing the array (example key: `records`):
 
 ```bash

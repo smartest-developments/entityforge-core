@@ -58,3 +58,6 @@ If no `--input-json` is provided, the command generates a realistic sample first
 ```bash
 python3 senzing/tools/run_sample_to_management.py --records 500
 ```
+
+Default behavior: cleanup of `--projects-root` at the end of the run to avoid accumulating multi-GB project folders.
+Use `--keep-projects-root` only when you need project internals for troubleshooting.

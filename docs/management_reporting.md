@@ -52,5 +52,8 @@ Default behavior:
 - generates management reports
 - updates `output/run_registry.csv`
 - removes loader temp shuffle files (`*_sz_shuff_*`) unless `--keep-loader-temp-files` is set
+- cleans `--projects-root` at the end of each run (default) to avoid disk growth
+
+Use `--keep-projects-root` only for debugging sessions where project internals must be inspected.
 
 If `--input-json` is omitted, it generates a realistic sample first (`--records` controls size).

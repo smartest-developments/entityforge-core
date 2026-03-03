@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Metrics Validation Guide</title>
+    <link rel="stylesheet" href="./tabler.min.css">
+    <style>
+      :root {
+        --guide-bg: #f7f1e6;
+        --guide-card: #6c7b90;
+        --guide-card-soft: #8290a3;
+        --guide-line: #9aa8ba;
+        --guide-text: #f1f6ff;
+        --guide-soft: #d8e4f8;
+      }
+
+      body {
+        margin: 0;
+        background: var(--guide-bg);
+        font-family: "Inter", "Segoe UI", "Avenir Next", sans-serif;
+        color: var(--guide-text);
+      }
+
+      .wrapper {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 1rem 0.9rem 1.2rem;
+      }
+
+      .card {
+        background: linear-gradient(180deg, var(--guide-card) 0%, var(--guide-card-soft) 100%);
+        border: 1px solid var(--guide-line);
+        border-radius: 12px;
+        box-shadow: 0 8px 22px rgba(30, 41, 59, 0.24);
+      }
+
+      .title {
+        font-size: 1.35rem;
+        font-weight: 900;
+        margin: 0;
+      }
+
+      .subtitle {
+        margin-top: 0.35rem;
+        color: var(--guide-soft);
+        font-size: 0.9rem;
+      }
+
+      .source-list {
+        margin: 0.6rem 0 0;
+        padding-left: 1.1rem;
+      }
+
+      .source-list li {
+        margin: 0.28rem 0;
+        line-height: 1.35;
+      }
+
+      .source-code {
+        display: inline-block;
+        padding: 0.12rem 0.38rem;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.12);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.78rem;
+      }
+
+      .status-pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .status-pass {
+        color: #bbf7d0;
+        background: rgba(34, 197, 94, 0.18);
+      }
+
+      .status-fail {
+        color: #fecdd3;
+        background: rgba(244, 63, 94, 0.2);
+      }
+
+      .status-skip {
+        color: #fde68a;
+        background: rgba(245, 158, 11, 0.2);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      .table {
+        --tblr-table-color: #e2e8f0;
+      }
+
+      .table td,
+      .table th {
+        border-color: var(--guide-line);
+        vertical-align: top;
+        font-size: 0.84rem;
+      }
+
+      .table th {
+        font-size: 0.8rem;
+        color: #dbe6f9;
+        letter-spacing: 0.03em;
+      }
+
+      .note {
+        margin-top: 0.75rem;
+        color: var(--guide-soft);
+        font-size: 0.82rem;
+        line-height: 1.35;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h1 class="title">Metrics Validation Guide</h1>
+          <div class="subtitle">
+            Manual cross-check instructions for dashboard KPIs. Use this page to validate each selected run.
+          </div>
+          <ul class="source-list">
+            <li>Run selector: <select id="runSelector" class="form-select form-select-sm d-inline-block w-auto ms-2"></select></li>
+            <li>Overall consistency: <span id="overallStatus" class="status-pill status-skip">N/A</span></li>
+            <li>Primary files used for verification:</li>
+          </ul>
+          <ul class="source-list" id="filePaths"></ul>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header">
+          <h3 class="card-title m-0">Manual Verification Checklist</h3>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="table table-sm table-bordered mb-0">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Expected Value (Dashboard)</th>
+                <th>How To Verify Manually</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="manualChecklist"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title m-0">Automated Consistency Checks</h3>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="table table-sm table-bordered mb-0">
+            <thead>
+              <tr>
+                <th>Check</th>
+                <th>Expected</th>
+                <th>Actual</th>
+                <th>Status</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="automatedChecks"></tbody>
+          </table>
+          <div class="note">
+            Formula reference: Their Match Found = TP / (TP + FP).  
+            Our Match Found = TP / (TP + FN).  
+            Match Missed = 100 - Our Match Found.  
+            False Positive % = FP / Predicted Pairs.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="./management_dashboard_data.js"></script>
+    <script>
+      (function () {
+        const data = window.MVP_DASHBOARD_DATA || { runs: [] };
+
+        function byId(id) {
+          return document.getElementById(id);
+        }
+
+        function getRuns() {
+          return Array.isArray(data.runs) ? data.runs.filter((run) => run && run.run_status === 'success') : [];
+        }
+
+        function getRun(runId) {
+          return getRuns().find((run) => run.run_id === runId) || null;
+        }
+
+        function asNumber(value) {
+          return typeof value === 'number' && Number.isFinite(value) ? value : null;
+        }
+
+        function pct(num, den) {
+          if (typeof num !== 'number' || typeof den !== 'number' || den <= 0) {
+            return null;
+          }
+          return (num / den) * 100;
+        }
+
+        function fmtInt(value) {
+          return typeof value === 'number' ? value.toLocaleString('en-US') : 'n/a';
+        }
+
+        function fmtPct(value) {
+          return typeof value === 'number' ? value.toFixed(2) + '%' : 'n/a';
+        }
+
+        function fmtAny(value) {
+          if (typeof value === 'number') {
+            return Number.isInteger(value) ? value.toLocaleString('en-US') : value.toFixed(2);
+          }
+          if (typeof value === 'string' && value.trim()) {
+            return value;
+          }
+          return 'n/a';
+        }
+
+        function statusClass(status) {
+          if (status === 'PASS') return 'status-pass';
+          if (status === 'FAIL') return 'status-fail';
+          return 'status-skip';
+        }
+
+        function setOverallStatus(status) {
+          const el = byId('overallStatus');
+          el.className = 'status-pill ' + statusClass(status);
+          el.textContent = status || 'N/A';
+        }
+
+        function renderFilePaths(validation) {
+          const list = byId('filePaths');
+          const files = [
+            validation?.input_source_path,
+            validation?.management_summary_path,
+            validation?.ground_truth_path,
+            validation?.matched_pairs_path,
+            validation?.entity_records_path,
+            validation?.input_jsonl_path,
+          ].filter((item) => typeof item === 'string' && item.trim());
+
+          list.innerHTML = files
+            .map((path) => '<li><span class="source-code">' + path.replaceAll('<', '&lt;') + '</span></li>')
+            .join('');
+        }
+
+        function renderManualChecklist(run) {
+          const recallPct = asNumber(run.pair_recall_pct);
+          const precisionPct = asNumber(run.pair_precision_pct);
+          const missPct = typeof recallPct === 'number' ? Math.max(0, 100 - recallPct) : null;
+          const fpPct = asNumber(run.overall_false_positive_pct) ?? pct(asNumber(run.false_positive), asNumber(run.predicted_pairs_labeled));
+          const coveragePct = asNumber(run.our_match_coverage_pct) ?? recallPct;
+
+          const rows = [
+            {
+              metric: 'Selected Input Records',
+              value: fmtInt(run.records_input),
+              how: 'Open input_normalized.jsonl and count non-empty lines.',
+              src: 'technical output/input_normalized.jsonl',
+            },
+            {
+              metric: 'Their Matched Pairs',
+              value: fmtInt(run.matched_pairs),
+              how: 'Open matched_pairs.csv and count data rows.',
+              src: 'technical output/matched_pairs.csv',
+            },
+            {
+              metric: 'Their Resolved Entities',
+              value: fmtInt(run.resolved_entities),
+              how: 'Open entity_records.csv and count distinct resolved_entity_id values.',
+              src: 'technical output/entity_records.csv',
+            },
+            {
+              metric: 'Their Match Found',
+              value: fmtPct(precisionPct),
+              how: 'Compute TP / (TP + FP) from ground_truth_match_quality.json -> pair_metrics.',
+              src: 'technical output/ground_truth_match_quality.json',
+            },
+            {
+              metric: 'Our Match Found',
+              value: fmtPct(coveragePct),
+              how: 'Compute TP / (TP + FN) from ground_truth_match_quality.json -> pair_metrics.',
+              src: 'technical output/ground_truth_match_quality.json',
+            },
+            {
+              metric: 'Their Match Missed',
+              value: fmtPct(missPct),
+              how: 'Compute 100 - Our Match Found.',
+              src: 'derived from pair_metrics',
+            },
+            {
+              metric: 'Their False Positive %',
+              value: fmtPct(fpPct),
+              how: 'Compute FP / Predicted Pairs from pair_metrics.',
+              src: 'technical output/ground_truth_match_quality.json',
+            },
+            {
+              metric: 'Their True Positive',
+              value: fmtInt(run.true_positive),
+              how: 'Read pair_metrics.true_positive directly.',
+              src: 'technical output/ground_truth_match_quality.json',
+            },
+          ];
+
+          byId('manualChecklist').innerHTML = rows
+            .map(
+              (row) =>
+                '<tr>' +
+                '<td>' + row.metric + '</td>' +
+                '<td><strong>' + row.value + '</strong></td>' +
+                '<td>' + row.how + '</td>' +
+                '<td><span class="source-code">' + row.src + '</span></td>' +
+                '</tr>'
+            )
+            .join('');
+        }
+
+        function renderAutomatedChecks(run) {
+          const checks = Array.isArray(run?.validation?.checks) ? run.validation.checks : [];
+          byId('automatedChecks').innerHTML = checks
+            .map((item) => {
+              const status = typeof item?.status === 'string' ? item.status : 'SKIP';
+              return (
+                '<tr>' +
+                '<td>' + (item?.name || 'n/a') + '</td>' +
+                '<td>' + fmtAny(item?.expected) + '</td>' +
+                '<td>' + fmtAny(item?.actual) + '</td>' +
+                '<td><span class="status-pill ' + statusClass(status) + '">' + status + '</span></td>' +
+                '<td><span class="source-code">' + (item?.source || 'n/a') + '</span></td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+          setOverallStatus(run?.validation?.status || 'SKIP');
+        }
+
+        function render(runId) {
+          const run = getRun(runId);
+          if (!run) {
+            byId('manualChecklist').innerHTML = '';
+            byId('automatedChecks').innerHTML = '';
+            byId('filePaths').innerHTML = '';
+            setOverallStatus('SKIP');
+            return;
+          }
+          renderFilePaths(run.validation);
+          renderManualChecklist(run);
+          renderAutomatedChecks(run);
+        }
+
+        function boot() {
+          const runs = getRuns();
+          const selector = byId('runSelector');
+          selector.innerHTML = runs
+            .map((run) => '<option value="' + run.run_id + '">' + run.run_id + '</option>')
+            .join('');
+          if (!runs.length) {
+            render(null);
+            return;
+          }
+          selector.value = runs[0].run_id;
+          render(runs[0].run_id);
+          selector.addEventListener('change', (event) => render(event.target.value));
+        }
+
+        boot();
+      })();
+    </script>
+  </body>
+</html>
