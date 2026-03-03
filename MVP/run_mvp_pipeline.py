@@ -377,10 +377,7 @@ def refresh_dashboard_data(mvp_root: Path, output_root: Path) -> None:
         "--dashboard-dir",
         "dashboard",
     ]
-    try:
-        run_command(command, mvp_root)
-    except subprocess.CalledProcessError as exc:
-        print(f"WARNING: dashboard refresh failed (exit code {exc.returncode})")
+    run_command(command, mvp_root)
 
 
 def copy_artifacts_to_output(
@@ -628,7 +625,14 @@ def main() -> int:
             )
         except Exception as exc:
             print(f"WARNING: unable to compute extra match metrics ({exc})")
-        refresh_dashboard_data(mvp_root=mvp_root, output_root=output_root)
+        try:
+            refresh_dashboard_data(mvp_root=mvp_root, output_root=output_root)
+        except subprocess.CalledProcessError as exc:
+            print(
+                f"ERROR: dashboard refresh/test suite failed (exit code {exc.returncode}).",
+                file=sys.stderr,
+            )
+            return exc.returncode or 1
 
         print("\nMVP pipeline completed.")
         print(f"Input JSON: {input_json}")

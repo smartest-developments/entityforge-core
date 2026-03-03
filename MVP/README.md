@@ -14,6 +14,7 @@ Gli output finali vengono scritti in `output/<timestamp>__<input_label>/`.
 - `run_senzing_end_to_end.py`: runner E2E Senzing
 - `build_management_dashboard.py`: costruisce dashboard self-contained da tutti i run in `output/<timestamp>/`
 - `dashboard/`: dashboard pronta all'uso (UI + dati locali, apribile direttamente)
+- `testing/`: suite automatica Python per validare che i KPI dashboard corrispondano agli artifact tecnici
 - `sample_input/sample_01_legacy_baseline_500.json`: sample pronto (500 record)
 
 ## Prerequisiti
@@ -154,11 +155,26 @@ La dashboard e' completamente locale (no CDN, no hosting, no `http.server` obbli
   - oppure `dashboard/index.html`
 - Nel menu `Select output` puoi scegliere anche `All outputs (aggregate)` per una vista globale di tutti i run `success`
   (volumi sommati e percentuali calcolate sui totali).
+- Dopo ogni rebuild dashboard viene eseguita automaticamente una suite di test KPI (`MVP/testing/`).
+- Se i test falliscono, il rebuild viene marcato come failed (exit code non-zero).
+- Dopo la suite test viene eseguito anche `verify_dashboard_metrics.py` come audit incrociato.
 
 Rigenerazione manuale:
 
 ```bash
 python3 build_management_dashboard.py
+```
+
+Per rigenerare dashboard senza eseguire i test automatici (solo debug rapido):
+
+```bash
+python3 build_management_dashboard.py --skip-tests
+```
+
+Per saltare solo l'audit incrociato (debug rapido):
+
+```bash
+python3 build_management_dashboard.py --skip-audit
 ```
 
 Output della rigenerazione:
@@ -169,6 +185,8 @@ Output della rigenerazione:
 - `dashboard/management_dashboard_data.js`
 - `dashboard/metrics_validation_guide.html` (manual cross-check page for KPI validation)
 - `dashboard/tabler.min.css`, `dashboard/tabler.min.js`, `dashboard/chart.umd.js`
+- `dashboard/dashboard_test_suite_report.json` (esito machine-readable della suite test automatica)
+- `dashboard/dashboard_test_suite_report.md` (report leggibile test PASS/FAIL)
 
 ## Data audit for management (proof of KPI correctness)
 
@@ -177,6 +195,24 @@ Per una verifica oggettiva dei KPI mostrati in dashboard:
 ```bash
 python3 build_management_dashboard.py
 python3 verify_dashboard_metrics.py
+```
+
+Esecuzione diretta della sola suite test automatica:
+
+```bash
+python3 testing/run_dashboard_tests.py
+```
+
+Generazione snapshot regressivo opzionale (latest run per source):
+
+```bash
+python3 testing/generate_dashboard_snapshot.py
+```
+
+Per abilitare i test regressivi snapshot:
+
+```bash
+MVP_ENFORCE_REGRESSION_SNAPSHOT=1 python3 testing/run_dashboard_tests.py
 ```
 
 Lo script `verify_dashboard_metrics.py` ricalcola i KPI direttamente dagli artifact tecnici

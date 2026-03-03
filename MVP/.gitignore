@@ -5,3 +5,7 @@ output/*
 # Python cache
 __pycache__/
 *.pyc
+
+# Generated automated dashboard test reports
+dashboard/dashboard_test_suite_report.json
+dashboard/dashboard_test_suite_report.md
