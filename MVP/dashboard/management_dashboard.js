@@ -1,10 +1,9 @@
 (function () {
   const data = window.MVP_DASHBOARD_DATA || { runs: [], summary: {} };
-  const ALL_RUNS_ID = '__all__';
 
   const state = {
-    selectedRunId: null,
-    entitySizeChart: null,
+    ourEntitySizeChart: null,
+    theirEntitySizeChart: null,
   };
 
   function byId(id) {
@@ -19,6 +18,39 @@
     return typeof value === 'number' ? `${value.toFixed(2)}%` : 'n/a';
   }
 
+  function fmtMinutes(value, isEstimate) {
+    if (typeof value !== 'number') {
+      return 'n/a';
+    }
+    if (isEstimate) {
+      return `~${value.toFixed(2)} min`;
+    }
+    return `${value.toFixed(2)} min`;
+  }
+
+  function fmtSignedPct(value) {
+    if (typeof value !== 'number') {
+      return 'n/a';
+    }
+    const sign = value > 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
+  }
+
+  function fmtOutOf(value, total) {
+    if (typeof value !== 'number' || typeof total !== 'number' || total < 0) {
+      return 'n/a';
+    }
+    return `${fmtInt(value)} / ${fmtInt(total)}`;
+  }
+
+  function fmtPctOutOf(value, total) {
+    if (typeof value !== 'number' || typeof total !== 'number' || total <= 0) {
+      return 'n/a';
+    }
+    const pct = (value / total) * 100;
+    return `${pct.toFixed(2)}% (${fmtOutOf(value, total)})`;
+  }
+
   function asNumber(value) {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
   }
@@ -30,52 +62,32 @@
     return (num / den) * 100;
   }
 
-  function sumField(runs, field) {
-    return runs.reduce((acc, run) => acc + (asNumber(run?.[field]) ?? 0), 0);
+  function formulaPctFromCounts(num, den, fallbackPct) {
+    if (typeof num === 'number' && typeof den === 'number' && den > 0) {
+      const pct = (num / den) * 100;
+      return `Formula: (${fmtInt(num)} / ${fmtInt(den)}) * 100 = ${pct.toFixed(2)}%`;
+    }
+    if (typeof fallbackPct === 'number') {
+      return `Formula result: ${fallbackPct.toFixed(2)}%`;
+    }
+    return 'Formula unavailable: missing numerator/denominator.';
   }
 
-  function mergeDistribution(runs, field) {
-    const merged = {};
-    for (const run of runs) {
-      const source = run?.[field];
-      if (!source || typeof source !== 'object') {
-        continue;
-      }
-      for (const [key, value] of Object.entries(source)) {
-        const number = Number(value);
-        if (!Number.isFinite(number)) {
-          continue;
-        }
-        merged[key] = (merged[key] || 0) + number;
-      }
+  function formulaSignedDeltaPct(a, b, den, fallbackPct, aLabel, bLabel) {
+    if (
+      typeof a === 'number' &&
+      typeof b === 'number' &&
+      typeof den === 'number' &&
+      den > 0
+    ) {
+      const delta = a - b;
+      const pct = (delta / den) * 100;
+      return `Formula: ((${aLabel} ${fmtInt(a)} - ${bLabel} ${fmtInt(b)}) / ${fmtInt(den)}) * 100 = ${pct.toFixed(2)}%`;
     }
-    return merged;
-  }
-
-  function mergeTopMatchKeys(runs, limit = 10) {
-    const counts = {};
-    for (const run of runs) {
-      const topKeys = Array.isArray(run?.top_match_keys) ? run.top_match_keys : [];
-      for (const item of topKeys) {
-        const key = typeof item?.[0] === 'string' ? item[0] : '';
-        const count = Number(item?.[1]);
-        if (!key || !Number.isFinite(count)) {
-          continue;
-        }
-        counts[key] = (counts[key] || 0) + count;
-      }
+    if (typeof fallbackPct === 'number') {
+      return `Formula result: ${fallbackPct.toFixed(2)}%`;
     }
-    return Object.entries(counts)
-      .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-      .slice(0, limit);
-  }
-
-  function toMissedPct(recallPct) {
-    if (typeof recallPct !== 'number') {
-      return null;
-    }
-    const missed = 100 - recallPct;
-    return Math.max(0, Math.min(100, missed));
+    return 'Formula unavailable: missing components.';
   }
 
   function escapeHtml(text) {
@@ -87,29 +99,84 @@
       .replaceAll("'", '&#039;');
   }
 
-  function getOurMetricHelp(label) {
+  function getOurMetricHelp(label, run) {
+    const inputRecords = asNumber(run.records_input);
+    const ourGroupedMembers = asNumber(run.our_grouped_members);
+    const theirGroupedMembers = asNumber(run.their_grouped_members);
+    const ourEntities = asNumber(run.our_entities_formed) ?? asNumber(run.our_resolved_entities);
+    const theirEntities = asNumber(run.their_entities_formed) ?? asNumber(run.resolved_entities);
+    const ourMatchPct = asNumber(run.our_match_pct) ?? ratioPct(ourGroupedMembers, inputRecords);
+    const ourMatchGainLossPct = asNumber(run.our_match_gain_loss_pct);
+    const ourEntityGainLossPct = asNumber(run.our_entity_gain_loss_pct);
+
     const map = {
-      Entities: 'Unique entities represented by our baseline grouping from input IPG labels.',
-      'Matched Pairs': 'True record pairs already captured by our IPG-based baseline.',
-      'Match Found': 'Our baseline recall: true pairs found by our labels over all true pairs.',
-      'Miss-Matched': 'True pairs missed by our baseline: 100 minus our Match Found.',
-      'False Positive': 'Pairs our baseline groups together but ground truth says are not true matches.',
-      'False Negative': 'True pairs not captured by our baseline grouping.',
+      'Match %':
+        'Share of input records in Our groups (size > 1). ' +
+        formulaPctFromCounts(ourGroupedMembers, inputRecords, ourMatchPct),
+      'Entities out of Records': typeof ourEntities === 'number' && typeof inputRecords === 'number' && inputRecords > 0
+        ? `Formula: (${fmtInt(ourEntities)} / ${fmtInt(inputRecords)}) * 100 = ${((ourEntities / inputRecords) * 100).toFixed(2)}%`
+        : 'Formula unavailable: missing entities or input records.',
+      'Match Gain/Loss %':
+        'Delta of grouped records vs Their grouped records over total input. ' +
+        formulaSignedDeltaPct(
+          ourGroupedMembers,
+          theirGroupedMembers,
+          inputRecords,
+          ourMatchGainLossPct,
+          'Our grouped',
+          'Their grouped'
+        ),
+      'Entity Gain/Loss %':
+        'Delta of Our entities vs Their entities over total input. ' +
+        formulaSignedDeltaPct(
+          ourEntities,
+          theirEntities,
+          inputRecords,
+          ourEntityGainLossPct,
+          'Our entities',
+          'Their entities'
+        ),
     };
     return map[label] || '';
   }
 
-  function getTheirMetricHelp(label) {
+  function getTheirMetricHelp(label, run) {
+    const inputRecords = asNumber(run.records_input);
+    const ourGroupedMembers = asNumber(run.our_grouped_members);
+    const theirGroupedMembers = asNumber(run.their_grouped_members);
+    const ourEntities = asNumber(run.our_entities_formed) ?? asNumber(run.our_resolved_entities);
+    const theirEntities = asNumber(run.their_entities_formed) ?? asNumber(run.resolved_entities);
+    const theirMatchPct = asNumber(run.their_match_pct) ?? ratioPct(theirGroupedMembers, inputRecords);
+    const theirMatchGainLossPct = asNumber(run.their_match_gain_loss_pct);
+    const theirEntityGainLossPct = asNumber(run.their_entity_gain_loss_pct);
+
     const map = {
-      Entities: 'Unique resolved entities produced by the matching engine output.',
-      'Matched Pairs': 'Total record pairs predicted as matches by the engine.',
-      'Match Found': 'Precision of predicted pairs: how many predicted pairs are truly correct.',
-      'Miss-Matched': 'Share of true pairs missed by the engine.',
-      'False Positive': 'Predicted match pairs that are incorrect versus ground truth.',
-      'False Negative': 'True match pairs that the engine did not find.',
-      'False Positive %': 'False positives divided by all predicted pairs.',
-      'Extra Pairs': 'Additional true pairs found beyond our baseline known pairs.',
-      'Match Gain': 'Extra true pairs found relative to our baseline known true pairs.',
+      'Match %':
+        'Share of input records in Their resolved entities (size > 1). ' +
+        formulaPctFromCounts(theirGroupedMembers, inputRecords, theirMatchPct),
+      'Entities out of Records': typeof theirEntities === 'number' && typeof inputRecords === 'number' && inputRecords > 0
+        ? `Formula: (${fmtInt(theirEntities)} / ${fmtInt(inputRecords)}) * 100 = ${((theirEntities / inputRecords) * 100).toFixed(2)}%`
+        : 'Formula unavailable: missing entities or input records.',
+      'Match Gain/Loss %':
+        'Delta of Their grouped records vs Our grouped records over total input. ' +
+        formulaSignedDeltaPct(
+          theirGroupedMembers,
+          ourGroupedMembers,
+          inputRecords,
+          theirMatchGainLossPct,
+          'Their grouped',
+          'Our grouped'
+        ),
+      'Entity Gain/Loss %':
+        'Delta of Their entities vs Our entities over total input. ' +
+        formulaSignedDeltaPct(
+          theirEntities,
+          ourEntities,
+          inputRecords,
+          theirEntityGainLossPct,
+          'Their entities',
+          'Our entities'
+        ),
     };
     return map[label] || '';
   }
@@ -134,211 +201,57 @@
     return run && typeof run.run_status === 'string' ? run.run_status : 'incomplete';
   }
 
-  function getSuccessfulRuns() {
-    return getAllRuns().filter((run) => getStatus(run) === 'success');
+  function hasRenderableMetrics(run) {
+    if (!run || typeof run !== 'object') {
+      return false;
+    }
+    const inputRecords = asNumber(run.records_input);
+    const ourMatchPct = asNumber(run.our_match_pct);
+    const theirMatchPct = asNumber(run.their_match_pct);
+    return typeof inputRecords === 'number' && (typeof ourMatchPct === 'number' || typeof theirMatchPct === 'number');
   }
 
-  function getRun(runId) {
-    if (runId === ALL_RUNS_ID) {
-      return buildAggregateRun(getSuccessfulRuns());
-    }
-    return getAllRuns().find((run) => run.run_id === runId) || null;
+  function getRenderableRuns() {
+    return getAllRuns().filter(hasRenderableMetrics);
   }
 
-  function getQualityRuns(runs) {
-    return runs.filter((run) => Boolean(run.quality_available));
+  function getRun() {
+    const runs = getRenderableRuns();
+    return runs.length ? runs[0] : null;
   }
 
-  function buildAggregateRun(runs) {
-    const selectedRuns = Array.isArray(runs) ? runs : [];
-    if (!selectedRuns.length) {
-      return null;
-    }
-
-    const totalInput = sumField(selectedRuns, 'records_input');
-    const totalOurResolved = sumField(selectedRuns, 'our_resolved_entities');
-    const totalPairs = sumField(selectedRuns, 'matched_pairs');
-    const totalResolved = sumField(selectedRuns, 'resolved_entities');
-    const tp = sumField(selectedRuns, 'true_positive');
-    const fp = sumField(selectedRuns, 'false_positive');
-    const fn = sumField(selectedRuns, 'false_negative');
-    const predictedPairs = sumField(selectedRuns, 'predicted_pairs_labeled');
-    const ourTruePairs = sumField(selectedRuns, 'our_true_positive');
-    const ourTotalTruePairs = sumField(selectedRuns, 'our_true_pairs_total');
-    const ourFalsePositive = sumField(selectedRuns, 'our_false_positive');
-    const ourFalseNegative = sumField(selectedRuns, 'our_false_negative');
-    const extraPairs = sumField(selectedRuns, 'extra_true_matches_found');
-    const knownPairs = sumField(selectedRuns, 'known_pairs_ipg');
-    const precisionPct = ratioPct(tp, tp + fp);
-    const coveragePct = ratioPct(ourTruePairs, ourTotalTruePairs);
-    const falsePositivePct = ratioPct(fp, predictedPairs);
-    const gainPct = ratioPct(extraPairs, knownPairs);
-
-    return {
-      run_id: ALL_RUNS_ID,
-      run_status: 'success',
-      source_input_name: `All successful runs (${selectedRuns.length})`,
-      run_label: 'All outputs (aggregate)',
-      records_input: totalInput,
-      our_resolved_entities: totalOurResolved,
-      matched_pairs: totalPairs,
-      resolved_entities: totalResolved,
-      true_positive: tp,
-      false_positive: fp,
-      false_negative: fn,
-      predicted_pairs_labeled: predictedPairs,
-      our_true_positive: ourTruePairs,
-      our_true_pairs_total: ourTotalTruePairs,
-      our_false_positive: ourFalsePositive,
-      our_false_negative: ourFalseNegative,
-      extra_true_matches_found: extraPairs,
-      known_pairs_ipg: knownPairs,
-      extra_gain_vs_known_pct: gainPct,
-      pair_precision_pct: precisionPct,
-      pair_recall_pct: coveragePct,
-      our_match_coverage_pct: coveragePct,
-      overall_false_positive_pct: falsePositivePct,
-      entity_size_distribution: mergeDistribution(selectedRuns, 'entity_size_distribution'),
-      top_match_keys: mergeTopMatchKeys(selectedRuns, 10),
-    };
-  }
-
-  function parseRunDate(run) {
-    const runId = typeof run?.run_id === 'string' ? run.run_id : '';
-    const match = runId.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
-    if (match) {
-      const [, y, m, d, hh, mm, ss] = match;
-      return new Date(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss));
-    }
-    if (typeof run?.run_datetime === 'string') {
-      const parsed = new Date(run.run_datetime);
-      if (!Number.isNaN(parsed.getTime())) {
-        return parsed;
-      }
-    }
-    return null;
-  }
-
-  function prettifySourceName(sourceName) {
-    if (typeof sourceName !== 'string') {
-      return '';
-    }
-    const base = sourceName.replace(/\.json$/i, '');
-    const tokens = base
-      .split('_')
-      .map((token) => token.trim())
-      .filter(Boolean);
-    if (!tokens.length) {
-      return sourceName;
-    }
-
-    // Keep a compact, user-friendly label (few words) from filename only.
-    let start = 0;
-    let labelPrefix = '';
-    if (tokens[0].toLowerCase() === 'sample' && tokens[1]) {
-      const num = tokens[1].padStart(2, '0');
-      labelPrefix = `Sample ${num}`;
-      start = 2;
-    }
-    const stopWords = new Set(['json', 'records', 'record']);
-    const core = [];
-    for (let i = start; i < tokens.length; i += 1) {
-      const token = tokens[i];
-      if (/^\d+$/.test(token)) {
-        continue;
-      }
-      if (stopWords.has(token.toLowerCase())) {
-        continue;
-      }
-      core.push(token);
-      if (core.length >= 3) {
-        break;
-      }
-    }
-
-    const phrase = core
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-    if (labelPrefix && phrase) {
-      return `${labelPrefix} ${phrase}`;
-    }
-    return labelPrefix || phrase || sourceName;
-  }
-
-  function formatRunLabel(run) {
-    const date = parseRunDate(run);
-    const sourceNameRaw =
-      (typeof run?.source_input_name === 'string' && run.source_input_name.trim()) ||
-      (typeof run?.run_label === 'string' && run.run_label.trim()) ||
-      '';
-    const sourceName = prettifySourceName(sourceNameRaw);
-    if (!date || Number.isNaN(date.getTime())) {
-      return sourceName || run.run_id;
-    }
-    const formatted = new Intl.DateTimeFormat('en-GB', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(date);
-    return sourceName ? `${sourceName} | ${formatted}` : formatted;
-  }
-
-  function ensureSelectedRun() {
-    const filtered = getSuccessfulRuns();
-    if (!filtered.length) {
-      state.selectedRunId = null;
-      return;
-    }
-    if (state.selectedRunId === ALL_RUNS_ID) {
-      return;
-    }
-    if (filtered.some((run) => run.run_id === state.selectedRunId)) {
-      return;
-    }
-    state.selectedRunId = ALL_RUNS_ID;
-  }
 
   function renderSelectedRunCards(run) {
-    const recallPct = asNumber(run.pair_recall_pct);
-    const precisionPct = asNumber(run.pair_precision_pct);
-    const matchMissed = toMissedPct(recallPct);
-    const predictedPairs = asNumber(run.predicted_pairs_labeled);
-    const falsePositive = asNumber(run.false_positive);
-    const fallbackFalsePositivePct = ratioPct(falsePositive, predictedPairs);
-    const fpPct = asNumber(run.overall_false_positive_pct) ?? fallbackFalsePositivePct;
-    const ourCoverage = asNumber(run.our_match_coverage_pct) ?? recallPct;
-    const ourMatchMissed = toMissedPct(ourCoverage);
-    const extraPairs = asNumber(run.extra_true_matches_found) ?? 0;
-    const knownPairs = asNumber(run.known_pairs_ipg);
-    const gainPct = asNumber(run.extra_gain_vs_known_pct) ?? ratioPct(extraPairs, knownPairs) ?? 0;
+    const inputRecords = asNumber(run.records_input);
+    const ourEntities = asNumber(run.our_entities_formed) ?? asNumber(run.our_resolved_entities);
+    const theirEntities = asNumber(run.their_entities_formed) ?? asNumber(run.resolved_entities);
+    const ourGroupedMembers = asNumber(run.our_grouped_members);
+    const theirGroupedMembers = asNumber(run.their_grouped_members);
+    const ourMatchPct = asNumber(run.our_match_pct) ?? ratioPct(ourGroupedMembers, inputRecords);
+    const theirMatchPct = asNumber(run.their_match_pct) ?? ratioPct(theirGroupedMembers, inputRecords);
+    const ourMatchGainLossPct = asNumber(run.our_match_gain_loss_pct);
+    const theirMatchGainLossPct = asNumber(run.their_match_gain_loss_pct);
+    const ourEntityGainLossPct = asNumber(run.our_entity_gain_loss_pct);
+    const theirEntityGainLossPct = asNumber(run.their_entity_gain_loss_pct);
+
     const ourCards = [
-      { label: 'Entities', value: fmtInt(run.our_resolved_entities), help: getOurMetricHelp('Entities') },
-      { label: 'Matched Pairs', value: fmtInt(run.our_true_positive), help: getOurMetricHelp('Matched Pairs') },
-      { label: 'Match Found', value: fmtPct(ourCoverage), help: getOurMetricHelp('Match Found') },
-      { label: 'Miss-Matched', value: fmtPct(ourMatchMissed), help: getOurMetricHelp('Miss-Matched') },
-      { label: 'False Positive', value: fmtInt(run.our_false_positive), help: getOurMetricHelp('False Positive') },
-      { label: 'False Negative', value: fmtInt(run.our_false_negative), help: getOurMetricHelp('False Negative') },
+      { label: 'Match %', value: fmtPct(ourMatchPct), help: getOurMetricHelp('Match %', run) },
+      { label: 'Entities out of Records', value: fmtPctOutOf(ourEntities, inputRecords), help: getOurMetricHelp('Entities out of Records', run) },
+      { label: 'Match Gain/Loss %', value: fmtSignedPct(ourMatchGainLossPct), help: getOurMetricHelp('Match Gain/Loss %', run) },
+      { label: 'Entity Gain/Loss %', value: fmtSignedPct(ourEntityGainLossPct), help: getOurMetricHelp('Entity Gain/Loss %', run) },
     ];
 
     const theirCards = [
-      { label: 'Entities', value: fmtInt(run.resolved_entities), help: getTheirMetricHelp('Entities') },
-      { label: 'Matched Pairs', value: fmtInt(run.matched_pairs), help: getTheirMetricHelp('Matched Pairs') },
-      { label: 'Match Found', value: fmtPct(precisionPct), help: getTheirMetricHelp('Match Found') },
-      { label: 'Miss-Matched', value: fmtPct(matchMissed), help: getTheirMetricHelp('Miss-Matched') },
-      { label: 'False Positive', value: fmtInt(run.false_positive), help: getTheirMetricHelp('False Positive') },
-      { label: 'False Negative', value: fmtInt(run.false_negative), help: getTheirMetricHelp('False Negative') },
-      { label: 'False Positive %', value: fmtPct(fpPct), help: getTheirMetricHelp('False Positive %') },
-      { label: 'Extra Pairs', value: fmtInt(extraPairs), help: getTheirMetricHelp('Extra Pairs') },
-      { label: 'Match Gain', value: fmtPct(gainPct), help: getTheirMetricHelp('Match Gain') },
+      { label: 'Match %', value: fmtPct(theirMatchPct), help: getTheirMetricHelp('Match %', run) },
+      { label: 'Entities out of Records', value: fmtPctOutOf(theirEntities, inputRecords), help: getTheirMetricHelp('Entities out of Records', run) },
+      { label: 'Match Gain/Loss %', value: fmtSignedPct(theirMatchGainLossPct), help: getTheirMetricHelp('Match Gain/Loss %', run) },
+      { label: 'Entity Gain/Loss %', value: fmtSignedPct(theirEntityGainLossPct), help: getTheirMetricHelp('Entity Gain/Loss %', run) },
     ];
 
     byId('ourMetricCards').innerHTML = ourCards
       .map(
         (card) => `
-          <div class="col-12 col-sm-6 col-xl-4 fade-up">
+          <div class="col-12 col-sm-6 col-xl-6 fade-up">
             <div class="card metric-card metric-card-our">
               <div class="card-body">
                 <div class="metric-label">${escapeHtml(card.label)}</div>
@@ -364,7 +277,7 @@
     byId('theirMetricCards').innerHTML = theirCards
       .map(
         (card) => `
-          <div class="col-12 col-sm-6 col-xl-4 fade-up">
+          <div class="col-12 col-sm-6 col-xl-6 fade-up">
             <div class="card metric-card">
               <div class="card-body">
                 <div class="metric-label">${escapeHtml(card.label)}</div>
@@ -387,21 +300,15 @@
       )
       .join('');
 
+    const executionMinutes = asNumber(run.execution_minutes);
+    const executionMinutesEstimated = asNumber(run.execution_minutes_estimated);
+    const isEstimate = executionMinutes === null && !!run.execution_minutes_is_estimate;
     byId('inputRecordsValue').textContent = fmtInt(run.records_input);
+    byId('executionMinutesValue').textContent = fmtMinutes(
+      executionMinutes !== null ? executionMinutes : executionMinutesEstimated,
+      isEstimate
+    );
     refreshTooltips();
-  }
-
-  function renderSelector() {
-    const runs = getSuccessfulRuns();
-    const selector = byId('runSelector');
-    const options = [
-      `<option value="${ALL_RUNS_ID}">Select all output (aggregate)</option>`,
-      ...runs.map((run) => `<option value="${escapeHtml(run.run_id)}">${escapeHtml(formatRunLabel(run))}</option>`),
-    ];
-    selector.innerHTML = options.join('');
-    if (state.selectedRunId) {
-      selector.value = state.selectedRunId;
-    }
   }
 
   function destroyChart(name) {
@@ -423,17 +330,52 @@
   }
 
   function renderSelectedCharts(run) {
-    destroyChart('entitySizeChart');
+    destroyChart('ourEntitySizeChart');
+    destroyChart('theirEntitySizeChart');
 
-    const entity = toDistribution(run.entity_size_distribution);
-    state.entitySizeChart = new Chart(byId('entitySizeChart'), {
+    const ourEntity = toDistribution(run.our_entity_size_distribution);
+    state.ourEntitySizeChart = new Chart(byId('ourEntitySizeChart'), {
       type: 'bar',
       data: {
-        labels: entity.labels,
+        labels: ourEntity.labels,
         datasets: [
           {
             label: 'Entity count',
-            data: entity.values,
+            data: ourEntity.values,
+            backgroundColor: '#ffffff',
+            borderColor: '#ffffff',
+            hoverBackgroundColor: '#ffffff',
+            hoverBorderColor: '#ffffff',
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            ticks: { color: '#e6edf8' },
+            grid: { color: 'rgba(230,237,248,0.14)' },
+          },
+          y: {
+            ticks: { color: '#e6edf8' },
+            grid: { color: 'rgba(230,237,248,0.14)' },
+          },
+        },
+      },
+    });
+
+    const theirEntity = toDistribution(run.entity_size_distribution);
+    state.theirEntitySizeChart = new Chart(byId('theirEntitySizeChart'), {
+      type: 'bar',
+      data: {
+        labels: theirEntity.labels,
+        datasets: [
+          {
+            label: 'Entity count',
+            data: theirEntity.values,
             backgroundColor: '#ffffff',
             borderColor: '#ffffff',
             hoverBackgroundColor: '#ffffff',
@@ -509,9 +451,10 @@
   }
 
   function renderCurrent() {
-    const run = getRun(state.selectedRunId);
+    const run = getRun();
     if (!run) {
       byId('inputRecordsValue').textContent = 'n/a';
+      byId('executionMinutesValue').textContent = 'n/a';
       byId('ourMetricCards').innerHTML =
         '<div class="col-12"><div class="alert alert-warning">No data available for selected run.</div></div>';
       byId('theirMetricCards').innerHTML =
@@ -522,32 +465,20 @@
     renderSelectedCharts(run);
   }
 
-  function bindEvents() {
-    byId('runSelector').addEventListener('change', (event) => {
-      state.selectedRunId = event.target.value;
-      renderCurrent();
-    });
-  }
-
   function renderEmptyState() {
     byId('inputRecordsValue').textContent = 'n/a';
+    byId('executionMinutesValue').textContent = 'n/a';
     byId('ourMetricCards').innerHTML =
       '<div class="col-12"><div class="alert alert-warning">Selected run details will appear here after the first successful run.</div></div>';
     byId('theirMetricCards').innerHTML =
       '<div class="col-12"><div class="alert alert-warning">Selected run details will appear here after the first successful run.</div></div>';
-    byId('runSelector').innerHTML = '';
   }
 
   function boot() {
-    if (!getSuccessfulRuns().length) {
+    if (!getRenderableRuns().length) {
       renderEmptyState();
       return;
     }
-    state.selectedRunId = ALL_RUNS_ID;
-
-    ensureSelectedRun();
-    renderSelector();
-    bindEvents();
     renderCurrent();
   }
 

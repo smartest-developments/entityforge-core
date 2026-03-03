@@ -11,6 +11,7 @@ import shutil
 import csv
 import subprocess
 import sys
+import functools
 from pathlib import Path
 
 RUN_DIR_RE = re.compile(r"^(?P<ts>\d{8}_\d{6})(?:__(?P<label>[A-Za-z0-9._-]+))?$")
@@ -108,85 +109,218 @@ def count_csv_rows(path: Path) -> int | None:
         return sum(1 for _ in csv.DictReader(infile))
 
 
-def count_unique_resolved_entities(path: Path) -> int | None:
+@functools.lru_cache(maxsize=256)
+def load_entity_record_profile(path: Path) -> dict[str, Any]:
+    """Build deduplicated entity/record profile from entity_records.csv."""
+    empty_profile = {
+        "records_total": None,
+        "entities_total": None,
+        "grouped_members": None,
+        "entity_size_distribution": {},
+        "entity_pairings_distribution": {},
+        "record_pairing_degree_distribution": {},
+        "record_ids": set(),
+    }
     if not path.exists():
-        return None
-    entities: set[str] = set()
+        return empty_profile
+
+    # Deduplicate by (DATA_SOURCE, RECORD_ID) to avoid inflated counts when export emits repeated rows.
+    record_to_entity: dict[str, tuple[int, str]] = {}
+    record_ids: set[str] = set()
     with path.open("r", encoding="utf-8", newline="") as infile:
         for row in csv.DictReader(infile):
             entity_id = str(row.get("resolved_entity_id") or "").strip()
-            if entity_id:
-                entities.add(entity_id)
-    return len(entities)
+            data_source = str(row.get("data_source") or "").strip()
+            record_id = str(row.get("record_id") or "").strip()
+            match_level_raw = str(row.get("match_level") or "").strip()
+            try:
+                match_level = int(match_level_raw)
+            except ValueError:
+                match_level = 999999
+            if not entity_id or not record_id:
+                continue
+            record_key = f"{data_source}::{record_id}" if data_source else record_id
+            existing = record_to_entity.get(record_key)
+            if existing is None or match_level < existing[0]:
+                record_to_entity[record_key] = (match_level, entity_id)
+            record_ids.add(record_id)
 
-
-def build_entity_distributions(path: Path) -> dict[str, dict[str, int]]:
-    if not path.exists():
+    if not record_to_entity:
         return {
+            "records_total": 0,
+            "entities_total": 0,
+            "grouped_members": 0,
             "entity_size_distribution": {},
             "entity_pairings_distribution": {},
             "record_pairing_degree_distribution": {},
+            "record_ids": set(),
         }
 
     per_entity_records: dict[str, int] = {}
-    with path.open("r", encoding="utf-8", newline="") as infile:
-        for row in csv.DictReader(infile):
-            entity_id = str(row.get("resolved_entity_id") or "").strip()
-            if not entity_id:
-                continue
-            per_entity_records[entity_id] = per_entity_records.get(entity_id, 0) + 1
+    for _, entity_id in record_to_entity.values():
+        per_entity_records[entity_id] = per_entity_records.get(entity_id, 0) + 1
 
     size_distribution: dict[int, int] = {}
     pairings_distribution: dict[int, int] = {}
     degree_distribution: dict[int, int] = {}
-
+    grouped_members = 0
     for size in per_entity_records.values():
         size_distribution[size] = size_distribution.get(size, 0) + 1
         pairings = size * (size - 1) // 2 if size > 1 else 0
         pairings_distribution[pairings] = pairings_distribution.get(pairings, 0) + 1
         degree = max(0, size - 1)
         degree_distribution[degree] = degree_distribution.get(degree, 0) + size
+        if size > 1:
+            grouped_members += size
 
     return {
+        "records_total": len(record_to_entity),
+        "entities_total": len(per_entity_records),
+        "grouped_members": grouped_members,
         "entity_size_distribution": {str(k): v for k, v in sorted(size_distribution.items())},
         "entity_pairings_distribution": {str(k): v for k, v in sorted(pairings_distribution.items())},
         "record_pairing_degree_distribution": {str(k): v for k, v in sorted(degree_distribution.items())},
+        "record_ids": record_ids,
     }
 
 
-def load_input_source_records(path: Path) -> list[dict]:
+def count_unique_resolved_entities(path: Path) -> int | None:
+    profile = load_entity_record_profile(path)
+    value = profile.get("entities_total")
+    return value if isinstance(value, int) else None
+
+
+def count_unique_entity_records(path: Path) -> int | None:
+    profile = load_entity_record_profile(path)
+    value = profile.get("records_total")
+    return value if isinstance(value, int) else None
+
+
+def build_entity_distributions(path: Path) -> dict[str, dict[str, int]]:
+    profile = load_entity_record_profile(path)
+    return {
+        "entity_size_distribution": profile.get("entity_size_distribution", {}) or {},
+        "entity_pairings_distribution": profile.get("entity_pairings_distribution", {}) or {},
+        "record_pairing_degree_distribution": profile.get("record_pairing_degree_distribution", {}) or {},
+    }
+
+
+def iter_input_source_records(path: Path):
     if not path.exists():
-        return []
+        return
+    if path.suffix.lower() == ".jsonl":
+        with path.open("r", encoding="utf-8") as infile:
+            for line in infile:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    item = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(item, dict):
+                    yield item
+        return
+
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return []
+        return
+
     if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
+        for item in payload:
+            if isinstance(item, dict):
+                yield item
+        return
+
     if isinstance(payload, dict):
         for key in ("records", "data", "items"):
             records = payload.get(key)
             if isinstance(records, list):
-                return [item for item in records if isinstance(item, dict)]
-    return []
+                for item in records:
+                    if isinstance(item, dict):
+                        yield item
+                return
 
 
-def count_unique_source_ipg_groups(input_source_json: Path) -> int | None:
-    records = load_input_source_records(input_source_json)
-    if not records:
-        return None
+def summarize_source_ipg_groups(input_source_json: Path, record_ids_filter: set[str] | None = None) -> dict[str, int | None]:
+    if not input_source_json.exists():
+        return {"records_total": None, "entities_total": None, "grouped_members": None, "entity_size_distribution": {}}
+
     candidates = ("IPG ID", "IPG_ID", "ipg_id", "SOURCE_IPG_ID", "source_ipg_id")
-    groups: set[str] = set()
-    for record in records:
+    records_total = 0
+    ipg_sizes: dict[str, int] = {}
+
+    for index, record in enumerate(iter_input_source_records(input_source_json), start=1):
+        if record_ids_filter is not None and str(index) not in record_ids_filter:
+            continue
+        records_total += 1
         for key in candidates:
             value = record.get(key)
             if value is None:
                 continue
             text = str(value).strip()
             if text:
-                groups.add(text)
+                ipg_sizes[text] = ipg_sizes.get(text, 0) + 1
                 break
-    return len(groups)
+
+    if records_total == 0:
+        return {"records_total": 0, "entities_total": None, "grouped_members": None, "entity_size_distribution": {}}
+
+    grouped_members = sum(size for size in ipg_sizes.values() if size > 1)
+    size_distribution: dict[int, int] = {}
+    for size in ipg_sizes.values():
+        size_distribution[size] = size_distribution.get(size, 0) + 1
+    return {
+        "records_total": records_total,
+        "entities_total": len(ipg_sizes),
+        "grouped_members": grouped_members,
+        "entity_size_distribution": {str(k): v for k, v in sorted(size_distribution.items())},
+    }
+
+
+def summarize_resolved_entity_groups(entity_records_csv: Path) -> dict[str, int | None]:
+    profile = load_entity_record_profile(entity_records_csv)
+    return {
+        "records_total": profile.get("records_total"),
+        "entities_total": profile.get("entities_total"),
+        "grouped_members": profile.get("grouped_members"),
+    }
+
+
+def count_unique_source_ipg_groups(input_source_json: Path) -> int | None:
+    summary = summarize_source_ipg_groups(input_source_json)
+    return summary.get("entities_total")
+
+
+def find_input_source_file(run_dir: Path) -> Path:
+    json_path = run_dir / "input_source.json"
+    if json_path.exists():
+        return json_path
+    jsonl_path = run_dir / "input_source.jsonl"
+    if jsonl_path.exists():
+        return jsonl_path
+    return json_path
+
+
+def compute_execution_seconds(run_summary: dict) -> float | None:
+    if not isinstance(run_summary, dict):
+        return None
+    steps = run_summary.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return None
+    total = 0.0
+    found = False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        duration = step.get("duration_seconds")
+        if isinstance(duration, (int, float)):
+            total += float(duration)
+            found = True
+    if not found:
+        return None
+    return round(total, 3)
 
 
 def build_validation_summary(
@@ -207,6 +341,7 @@ def build_validation_summary(
     predicted_pairs_labeled: int | None,
 ) -> dict[str, object]:
     checks: list[dict[str, object]] = []
+    input_source_file = find_input_source_file(run_dir)
 
     def add_check(name: str, expected: object, actual: object, source: str) -> None:
         if expected is None or actual is None:
@@ -228,12 +363,19 @@ def build_validation_summary(
             }
         )
 
+    loaded_entity_rows = count_unique_entity_records(technical_dir / "entity_records.csv")
     input_jsonl_rows = count_jsonl_rows(technical_dir / "input_normalized.jsonl")
+    selected_input_actual = loaded_entity_rows if isinstance(loaded_entity_rows, int) else input_jsonl_rows
+    selected_input_source = (
+        "technical output/entity_records.csv (deduplicated DATA_SOURCE+RECORD_ID)"
+        if isinstance(loaded_entity_rows, int)
+        else "technical output/input_normalized.jsonl"
+    )
     add_check(
         "Selected Input Records",
         records_input,
-        input_jsonl_rows,
-        "technical output/input_normalized.jsonl",
+        selected_input_actual,
+        selected_input_source,
     )
 
     matched_pairs_rows = count_csv_rows(technical_dir / "matched_pairs.csv")
@@ -293,7 +435,7 @@ def build_validation_summary(
         "status": overall_status,
         "checks": checks,
         "run_path": str(run_dir),
-        "input_source_path": str(run_dir / "input_source.json"),
+        "input_source_path": str(input_source_file),
         "management_summary_path": str(technical_dir / "management_summary.json"),
         "ground_truth_path": str(technical_dir / "ground_truth_match_quality.json"),
         "matched_pairs_path": str(technical_dir / "matched_pairs.csv"),
@@ -321,7 +463,13 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
     distribution_metrics = (
         ground_truth.get("distribution_metrics") if isinstance(ground_truth.get("distribution_metrics"), dict) else {}
     )
-    entity_distributions = build_entity_distributions(technical_dir / "entity_records.csv")
+    entity_records_csv = technical_dir / "entity_records.csv"
+    entity_profile = load_entity_record_profile(entity_records_csv)
+    entity_distributions = {
+        "entity_size_distribution": entity_profile.get("entity_size_distribution", {}) or {},
+        "entity_pairings_distribution": entity_profile.get("entity_pairings_distribution", {}) or {},
+        "record_pairing_degree_distribution": entity_profile.get("record_pairing_degree_distribution", {}) or {},
+    }
     baseline_match_coverage_raw = discovery_metrics.get("baseline_match_coverage")
     if not isinstance(baseline_match_coverage_raw, (int, float)):
         known_pairs = discovery_metrics.get("known_pairs_ipg")
@@ -395,8 +543,64 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
     mapping_input = str(mapping_summary.get("input_json") or "").strip()
     source_input_name = Path(mapping_input).name if mapping_input else None
     output_label = str(mapping_summary.get("output_label") or "").strip() or run_folder_label
-    input_source_json = run_dir / "input_source.json"
-    our_resolved_entities = count_unique_source_ipg_groups(input_source_json)
+    input_source_json = find_input_source_file(run_dir)
+    loaded_record_ids = entity_profile.get("record_ids")
+    source_ipg_summary = summarize_source_ipg_groups(
+        input_source_json,
+        record_ids_filter=loaded_record_ids if isinstance(loaded_record_ids, set) and loaded_record_ids else None,
+    )
+    our_resolved_entities = source_ipg_summary.get("entities_total")
+    our_entity_size_distribution = (
+        source_ipg_summary.get("entity_size_distribution")
+        if isinstance(source_ipg_summary.get("entity_size_distribution"), dict)
+        else {}
+    )
+    execution_seconds = compute_execution_seconds(run_summary)
+    execution_minutes = round(execution_seconds / 60.0, 2) if isinstance(execution_seconds, (int, float)) else None
+
+    their_entity_summary = summarize_resolved_entity_groups(entity_records_csv)
+
+    records_input_reported = (
+        management_summary.get("records_input") if isinstance(management_summary.get("records_input"), int) else None
+    )
+    records_input_loaded = (
+        their_entity_summary.get("records_total") if isinstance(their_entity_summary.get("records_total"), int) else None
+    )
+    records_input = records_input_loaded
+    if records_input is None:
+        records_input = source_ipg_summary.get("records_total")
+    if records_input is None:
+        records_input = records_input_reported
+    if records_input is None:
+        records_input = count_jsonl_rows(technical_dir / "input_normalized.jsonl")
+
+    resolved_entities = (
+        their_entity_summary.get("entities_total")
+        if isinstance(their_entity_summary.get("entities_total"), int)
+        else (
+            management_summary.get("resolved_entities")
+            if isinstance(management_summary.get("resolved_entities"), int)
+            else None
+        )
+    )
+    their_grouped_members = their_entity_summary.get("grouped_members")
+    our_grouped_members = source_ipg_summary.get("grouped_members")
+
+    our_match_pct = pct(safe_ratio(our_grouped_members, records_input))
+    their_match_pct = pct(safe_ratio(their_grouped_members, records_input))
+
+    match_members_delta = None
+    if isinstance(our_grouped_members, int) and isinstance(their_grouped_members, int):
+        match_members_delta = our_grouped_members - their_grouped_members
+
+    entity_count_delta = None
+    if isinstance(our_resolved_entities, int) and isinstance(resolved_entities, int):
+        entity_count_delta = our_resolved_entities - resolved_entities
+
+    our_match_gain_loss_pct = pct(safe_ratio(match_members_delta, records_input))
+    their_match_gain_loss_pct = pct(safe_ratio(-match_members_delta, records_input)) if match_members_delta is not None else None
+    our_entity_gain_loss_pct = pct(safe_ratio(entity_count_delta, records_input))
+    their_entity_gain_loss_pct = pct(safe_ratio(-entity_count_delta, records_input)) if entity_count_delta is not None else None
 
     artifact_entries: list[dict[str, object]] = []
     for file_path in sorted(path for path in run_dir.rglob("*") if path.is_file()):
@@ -444,10 +648,26 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
         "generated_at": management_summary.get("generated_at")
         or ground_truth.get("generated_at")
         or run_summary.get("generated_at"),
-        "records_input": management_summary.get("records_input"),
+        "execution_seconds": execution_seconds,
+        "execution_minutes": execution_minutes,
+        "execution_minutes_estimated": None,
+        "execution_minutes_is_estimate": False,
+        "records_input": records_input,
+        "records_input_loaded": records_input_loaded,
+        "records_input_reported": records_input_reported,
         "records_exported": management_summary.get("records_exported"),
+        "our_entities_formed": our_resolved_entities,
+        "their_entities_formed": resolved_entities,
+        "our_grouped_members": our_grouped_members,
+        "their_grouped_members": their_grouped_members,
+        "our_match_pct": our_match_pct,
+        "their_match_pct": their_match_pct,
+        "our_match_gain_loss_pct": our_match_gain_loss_pct,
+        "their_match_gain_loss_pct": their_match_gain_loss_pct,
+        "our_entity_gain_loss_pct": our_entity_gain_loss_pct,
+        "their_entity_gain_loss_pct": their_entity_gain_loss_pct,
         "our_resolved_entities": our_resolved_entities,
-        "resolved_entities": management_summary.get("resolved_entities"),
+        "resolved_entities": resolved_entities,
         "matched_records": management_summary.get("matched_records"),
         "matched_pairs": management_summary.get("matched_pairs"),
         "pair_precision_pct": pct(pair_precision_raw),
@@ -492,13 +712,14 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
         )[:10],
         "entity_size_distribution": entity_distributions.get("entity_size_distribution")
         or distribution_metrics.get("entity_size_distribution", {}),
+        "our_entity_size_distribution": our_entity_size_distribution,
         "entity_pairings_distribution": entity_distributions.get("entity_pairings_distribution")
         or distribution_metrics.get("entity_pairings_distribution", {}),
         "record_pairing_degree_distribution": entity_distributions.get("record_pairing_degree_distribution")
         or distribution_metrics.get("record_pairing_degree_distribution", {}),
         "explain_coverage": management_summary.get("explain_coverage", {}),
         "runtime_warnings": run_summary.get("runtime_warnings", []),
-        "input_source_path": f"{run_id}/input_source.json",
+        "input_source_path": f"{run_id}/{input_source_json.name}",
         "management_summary_path": f"{run_id}/management_summary.md",
         "ground_truth_summary_path": f"{run_id}/ground_truth_match_quality.md",
         "technical_path": f"{run_id}/technical output",
@@ -511,12 +732,8 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
         "validation": build_validation_summary(
             run_dir=run_dir,
             technical_dir=technical_dir,
-            records_input=management_summary.get("records_input")
-            if isinstance(management_summary.get("records_input"), int)
-            else None,
-            resolved_entities=management_summary.get("resolved_entities")
-            if isinstance(management_summary.get("resolved_entities"), int)
-            else None,
+            records_input=records_input if isinstance(records_input, int) else None,
+            resolved_entities=resolved_entities if isinstance(resolved_entities, int) else None,
             matched_pairs=management_summary.get("matched_pairs")
             if isinstance(management_summary.get("matched_pairs"), int)
             else None,
@@ -534,10 +751,42 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
     }
 
 
+def apply_execution_estimates(runs: list[dict]) -> None:
+    measured = [
+        run
+        for run in runs
+        if isinstance(run.get("execution_minutes"), (int, float))
+        and isinstance(run.get("records_input"), int)
+        and int(run.get("records_input") or 0) > 0
+    ]
+    if not measured:
+        return
+
+    # Use the largest measured run as baseline throughput to estimate missing durations.
+    anchor = max(measured, key=lambda item: int(item.get("records_input") or 0))
+    anchor_minutes = float(anchor.get("execution_minutes") or 0.0)
+    anchor_records = int(anchor.get("records_input") or 0)
+    if anchor_minutes <= 0 or anchor_records <= 0:
+        return
+    minutes_per_record = anchor_minutes / anchor_records
+
+    for run in runs:
+        if isinstance(run.get("execution_minutes"), (int, float)):
+            run["execution_minutes_estimated"] = run.get("execution_minutes")
+            run["execution_minutes_is_estimate"] = False
+            continue
+        records_input = run.get("records_input")
+        if isinstance(records_input, int) and records_input > 0:
+            run["execution_minutes_estimated"] = round(records_input * minutes_per_record, 2)
+            run["execution_minutes_is_estimate"] = True
+
+
 def collect_runs(output_root: Path) -> list[dict]:
     run_dirs = [path for path in output_root.iterdir() if path.is_dir() and RUN_DIR_RE.match(path.name)]
     run_dirs.sort(key=lambda path: path.name, reverse=True)
-    return [collect_run_record(output_root, run_dir) for run_dir in run_dirs]
+    runs = [collect_run_record(output_root, run_dir) for run_dir in run_dirs]
+    apply_execution_estimates(runs)
+    return runs
 
 
 def aggregate(runs: list[dict]) -> dict:
