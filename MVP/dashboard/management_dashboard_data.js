@@ -1,5 +1,5 @@
 window.MVP_DASHBOARD_DATA = {
-  "generated_at": "2026-03-02T14:00:39",
+  "generated_at": "2026-03-02T15:32:30",
   "output_root": "/Users/simones/Developer/mapper-ai-main/MVP/output",
   "runs": [
     {

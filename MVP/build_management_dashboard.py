@@ -38,6 +38,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip automated dashboard metric test suite after rebuild",
     )
+    parser.add_argument(
+        "--skip-audit",
+        action="store_true",
+        help="Skip verify_dashboard_metrics cross-check after rebuild",
+    )
     return parser.parse_args()
 
 
@@ -616,6 +621,26 @@ def run_dashboard_test_suite(mvp_root: Path, output_root: Path, dashboard_dir: P
     subprocess.run(command, cwd=str(mvp_root), check=True)
 
 
+def run_dashboard_metric_audit(mvp_root: Path, output_root: Path, dashboard_dir: Path) -> None:
+    verifier = mvp_root / "verify_dashboard_metrics.py"
+    if not verifier.exists():
+        raise FileNotFoundError(f"Missing dashboard verifier: {verifier}")
+
+    command = [
+        sys.executable,
+        str(verifier),
+        "--output-root",
+        str(output_root),
+        "--dashboard-data",
+        str(dashboard_dir / "management_dashboard_data.js"),
+        "--report-json",
+        str(dashboard_dir / "dashboard_data_audit_report.json"),
+        "--report-md",
+        str(dashboard_dir / "dashboard_data_audit_report.md"),
+    ]
+    subprocess.run(command, cwd=str(mvp_root), check=True)
+
+
 def main() -> int:
     args = parse_args()
     mvp_root = Path(__file__).resolve().parent
@@ -654,6 +679,20 @@ def main() -> int:
             print(
                 f"ERROR: dashboard test suite failed (exit code {exc.returncode}). "
                 "Check dashboard_test_suite_report.md for details.",
+                file=sys.stderr,
+            )
+            return exc.returncode or 1
+    if not args.skip_audit:
+        try:
+            run_dashboard_metric_audit(mvp_root=mvp_root, output_root=output_root, dashboard_dir=dashboard_dir)
+            print("Dashboard metric audit: PASS")
+        except FileNotFoundError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        except subprocess.CalledProcessError as exc:
+            print(
+                f"ERROR: dashboard metric audit failed (exit code {exc.returncode}). "
+                "Check dashboard_data_audit_report.md for details.",
                 file=sys.stderr,
             )
             return exc.returncode or 1

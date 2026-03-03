@@ -1,14 +1,758 @@
 {
-  "generated_at": "2026-03-02T13:51:41",
+  "generated_at": "2026-03-02T15:32:31",
   "output_root": "/Users/simones/Developer/mapper-ai-main/MVP/output",
   "dashboard_data": "/Users/simones/Developer/mapper-ai-main/MVP/dashboard/management_dashboard_data.js",
   "summary": {
-    "runs_total": 22,
-    "runs_pass": 22,
+    "runs_total": 30,
+    "runs_pass": 30,
     "runs_fail": 0,
     "runs_skip": 0
   },
   "runs": [
+    {
+      "run_id": "20260302_135931__sample_30_id_disruption_500",
+      "run_label": "sample_30_id_disruption_500",
+      "source_input_name": "sample_30_id_disruption_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 430,
+          "recomputed": 430,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 344,
+          "recomputed": 344,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 344,
+          "recomputed": 344,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": 82.56,
+          "recomputed": 82.56,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": 17.44,
+          "recomputed": 17.44,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": 40.83,
+          "recomputed": 40.83,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 31.15,
+          "recomputed": 31.15,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 95,
+          "recomputed": 95,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 71,
+          "recomputed": 71,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 15,
+          "recomputed": 15,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 49,
+          "recomputed": 49,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
+    {
+      "run_id": "20260302_135845__sample_29_compound_noise_500",
+      "run_label": "sample_29_compound_noise_500",
+      "source_input_name": "sample_29_compound_noise_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 460,
+          "recomputed": 460,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 354,
+          "recomputed": 354,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 354,
+          "recomputed": 354,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": 80.0,
+          "recomputed": 80.0,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": 20.0,
+          "recomputed": 20.0,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": 29.67,
+          "recomputed": 29.67,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 25.44,
+          "recomputed": 25.44,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 72,
+          "recomputed": 72,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 64,
+          "recomputed": 64,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 16,
+          "recomputed": 16,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 27,
+          "recomputed": 27,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
+    {
+      "run_id": "20260302_135820__sample_28_full_stress_mix_500",
+      "run_label": "sample_28_full_stress_mix_500",
+      "source_input_name": "sample_28_full_stress_mix_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 547,
+          "recomputed": 547,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 375,
+          "recomputed": 375,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 375,
+          "recomputed": 375,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": 97.22,
+          "recomputed": 97.22,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": 2.78,
+          "recomputed": 2.78,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": 40.68,
+          "recomputed": 40.68,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 19.18,
+          "recomputed": 19.18,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 47,
+          "recomputed": 47,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 35,
+          "recomputed": 35,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 1,
+          "recomputed": 1,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 24,
+          "recomputed": 24,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
+    {
+      "run_id": "20260302_135753__sample_27_high_ipg_collision_500",
+      "run_label": "sample_27_high_ipg_collision_500",
+      "source_input_name": "sample_27_high_ipg_collision_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 346,
+          "recomputed": 346,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 285,
+          "recomputed": 285,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 285,
+          "recomputed": 285,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": 78.54,
+          "recomputed": 78.54,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": 21.46,
+          "recomputed": 21.46,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": 31.72,
+          "recomputed": 31.72,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 62.63,
+          "recomputed": 62.63,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 243,
+          "recomputed": 243,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 183,
+          "recomputed": 183,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 50,
+          "recomputed": 50,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 85,
+          "recomputed": 85,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
+    {
+      "run_id": "20260302_135728__sample_26_person_chaos_low_ipg_500",
+      "run_label": "sample_26_person_chaos_low_ipg_500",
+      "source_input_name": "sample_26_person_chaos_low_ipg_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 328,
+          "recomputed": 328,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 381,
+          "recomputed": 381,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 381,
+          "recomputed": 381,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": null,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": null,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": null,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 0.0,
+          "recomputed": 0.0,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 0,
+          "recomputed": 0,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 0,
+          "recomputed": 0,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 0,
+          "recomputed": 0,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 0,
+          "recomputed": 0,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
+    {
+      "run_id": "20260302_135702__sample_25_org_sparse_mix_500",
+      "run_label": "sample_25_org_sparse_mix_500",
+      "source_input_name": "sample_25_org_sparse_mix_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 339,
+          "recomputed": 339,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 359,
+          "recomputed": 359,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 359,
+          "recomputed": 359,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": 89.53,
+          "recomputed": 89.53,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": 10.47,
+          "recomputed": 10.47,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": 22.22,
+          "recomputed": 22.22,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 30.48,
+          "recomputed": 30.48,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 82,
+          "recomputed": 82,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 77,
+          "recomputed": 77,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 9,
+          "recomputed": 9,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 22,
+          "recomputed": 22,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
+    {
+      "run_id": "20260302_135636__sample_24_id_disruption_500",
+      "run_label": "sample_24_id_disruption_500",
+      "source_input_name": "sample_24_id_disruption_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 362,
+          "recomputed": 362,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 333,
+          "recomputed": 333,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 333,
+          "recomputed": 333,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": 78.75,
+          "recomputed": 78.75,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": 21.25,
+          "recomputed": 21.25,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": 45.69,
+          "recomputed": 45.69,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 31.65,
+          "recomputed": 31.65,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 94,
+          "recomputed": 94,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 63,
+          "recomputed": 63,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 17,
+          "recomputed": 17,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 53,
+          "recomputed": 53,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
+    {
+      "run_id": "20260302_135613__sample_23_compound_noise_500",
+      "run_label": "sample_23_compound_noise_500",
+      "source_input_name": "sample_23_compound_noise_500.json",
+      "run_status": "success",
+      "overall_status": "PASS",
+      "checks": [
+        {
+          "name": "Input Records",
+          "dashboard": 500,
+          "recomputed": null,
+          "status": "SKIP",
+          "source": "technical output/input_normalized.jsonl"
+        },
+        {
+          "name": "Matched Pairs",
+          "dashboard": 698,
+          "recomputed": 698,
+          "status": "PASS",
+          "source": "technical output/matched_pairs.csv"
+        },
+        {
+          "name": "Resolved Entities",
+          "dashboard": 358,
+          "recomputed": 358,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Entity Size Distribution Total",
+          "dashboard": 358,
+          "recomputed": 358,
+          "status": "PASS",
+          "source": "technical output/entity_records.csv"
+        },
+        {
+          "name": "Their Match Found (%)",
+          "dashboard": 59.65,
+          "recomputed": 59.65,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive (%)",
+          "dashboard": 40.35,
+          "recomputed": 40.35,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their Match Missed (%)",
+          "dashboard": 47.69,
+          "recomputed": 47.69,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Our Match Found (%)",
+          "dashboard": 17.94,
+          "recomputed": 17.94,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Our Matched Pairs",
+          "dashboard": 47,
+          "recomputed": 47,
+          "status": "PASS",
+          "source": "technical output/management_summary.json (discovery_metrics)"
+        },
+        {
+          "name": "Their True Positive",
+          "dashboard": 34,
+          "recomputed": 34,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Positive",
+          "dashboard": 23,
+          "recomputed": 23,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        },
+        {
+          "name": "Their False Negative",
+          "dashboard": 31,
+          "recomputed": 31,
+          "status": "PASS",
+          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
+        }
+      ]
+    },
     {
       "run_id": "20260302_134653__sample_22_full_stress_mix_500",
       "run_label": "sample_22_full_stress_mix_500",

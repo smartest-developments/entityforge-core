@@ -12,6 +12,10 @@ This folder contains the automated Python test suite that validates dashboard KP
 - Entity size distribution integrity and consistency with entity totals
 - Dashboard global summary consistency
 - Synthetic sample coverage (presence of FP/FN cases in generated stress samples)
+- Aggregate and contract checks (payload schema, distributions, paths, summary invariants)
+- Cross-tool consistency (`testing` suite vs `verify_dashboard_metrics.py`)
+- Failure-mode robustness tests for parser/helpers (invalid JS/JSON, missing files, bad distributions)
+- Optional regression snapshot checks on latest run per source
 
 ## Run manually
 
@@ -28,7 +32,20 @@ python3 testing/run_dashboard_tests.py \
   --dashboard-data dashboard/management_dashboard_data.js
 ```
 
+Generate/update regression snapshot baseline:
+
+```bash
+python3 testing/generate_dashboard_snapshot.py
+```
+
+Enable strict snapshot regression checks:
+
+```bash
+MVP_ENFORCE_REGRESSION_SNAPSHOT=1 python3 testing/run_dashboard_tests.py
+```
+
 ## Reports generated
 
 - `dashboard/dashboard_test_suite_report.json`
 - `dashboard/dashboard_test_suite_report.md`
+- `testing/snapshots/dashboard_regression_snapshot.json` (generated baseline for optional regression lock)

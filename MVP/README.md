@@ -157,6 +157,7 @@ La dashboard e' completamente locale (no CDN, no hosting, no `http.server` obbli
   (volumi sommati e percentuali calcolate sui totali).
 - Dopo ogni rebuild dashboard viene eseguita automaticamente una suite di test KPI (`MVP/testing/`).
 - Se i test falliscono, il rebuild viene marcato come failed (exit code non-zero).
+- Dopo la suite test viene eseguito anche `verify_dashboard_metrics.py` come audit incrociato.
 
 Rigenerazione manuale:
 
@@ -168,6 +169,12 @@ Per rigenerare dashboard senza eseguire i test automatici (solo debug rapido):
 
 ```bash
 python3 build_management_dashboard.py --skip-tests
+```
+
+Per saltare solo l'audit incrociato (debug rapido):
+
+```bash
+python3 build_management_dashboard.py --skip-audit
 ```
 
 Output della rigenerazione:
@@ -194,6 +201,18 @@ Esecuzione diretta della sola suite test automatica:
 
 ```bash
 python3 testing/run_dashboard_tests.py
+```
+
+Generazione snapshot regressivo opzionale (latest run per source):
+
+```bash
+python3 testing/generate_dashboard_snapshot.py
+```
+
+Per abilitare i test regressivi snapshot:
+
+```bash
+MVP_ENFORCE_REGRESSION_SNAPSHOT=1 python3 testing/run_dashboard_tests.py
 ```
 
 Lo script `verify_dashboard_metrics.py` ricalcola i KPI direttamente dagli artifact tecnici

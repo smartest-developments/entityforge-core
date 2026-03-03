@@ -87,6 +87,45 @@
       .replaceAll("'", '&#039;');
   }
 
+  function getOurMetricHelp(label) {
+    const map = {
+      Entities: 'Unique entities represented by our baseline grouping from input IPG labels.',
+      'Matched Pairs': 'True record pairs already captured by our IPG-based baseline.',
+      'Match Found': 'Our baseline recall: true pairs found by our labels over all true pairs.',
+      'Miss-Matched': 'True pairs missed by our baseline: 100 minus our Match Found.',
+      'False Positive': 'Pairs our baseline groups together but ground truth says are not true matches.',
+      'False Negative': 'True pairs not captured by our baseline grouping.',
+    };
+    return map[label] || '';
+  }
+
+  function getTheirMetricHelp(label) {
+    const map = {
+      Entities: 'Unique resolved entities produced by the matching engine output.',
+      'Matched Pairs': 'Total record pairs predicted as matches by the engine.',
+      'Match Found': 'Precision of predicted pairs: how many predicted pairs are truly correct.',
+      'Miss-Matched': 'Share of true pairs missed by the engine.',
+      'False Positive': 'Predicted match pairs that are incorrect versus ground truth.',
+      'False Negative': 'True match pairs that the engine did not find.',
+      'False Positive %': 'False positives divided by all predicted pairs.',
+      'Extra Pairs': 'Additional true pairs found beyond our baseline known pairs.',
+      'Match Gain': 'Extra true pairs found relative to our baseline known true pairs.',
+    };
+    return map[label] || '';
+  }
+
+  function refreshTooltips() {
+    if (!window.bootstrap || typeof window.bootstrap.Tooltip !== 'function') {
+      return;
+    }
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((element) => {
+      window.bootstrap.Tooltip.getOrCreateInstance(element, {
+        container: 'body',
+        trigger: 'hover focus',
+      });
+    });
+  }
+
   function getAllRuns() {
     return Array.isArray(data.runs) ? data.runs : [];
   }
@@ -276,25 +315,24 @@
     const knownPairs = asNumber(run.known_pairs_ipg);
     const gainPct = asNumber(run.extra_gain_vs_known_pct) ?? ratioPct(extraPairs, knownPairs) ?? 0;
     const ourCards = [
-      { label: 'Entities', value: fmtInt(run.our_resolved_entities) },
-      { label: 'Matched Pairs', value: fmtInt(run.our_true_positive) },
-      { label: 'Match Found', value: fmtPct(ourCoverage) },
-      { label: 'Miss-Matched', value: fmtPct(ourMatchMissed) },
-      { label: 'False Positive', value: fmtInt(run.our_false_positive) },
-      { label: 'False Negative', value: fmtInt(run.our_false_negative) },
-      { label: 'Input Records', value: fmtInt(run.records_input) },
+      { label: 'Entities', value: fmtInt(run.our_resolved_entities), help: getOurMetricHelp('Entities') },
+      { label: 'Matched Pairs', value: fmtInt(run.our_true_positive), help: getOurMetricHelp('Matched Pairs') },
+      { label: 'Match Found', value: fmtPct(ourCoverage), help: getOurMetricHelp('Match Found') },
+      { label: 'Miss-Matched', value: fmtPct(ourMatchMissed), help: getOurMetricHelp('Miss-Matched') },
+      { label: 'False Positive', value: fmtInt(run.our_false_positive), help: getOurMetricHelp('False Positive') },
+      { label: 'False Negative', value: fmtInt(run.our_false_negative), help: getOurMetricHelp('False Negative') },
     ];
 
     const theirCards = [
-      { label: 'Entities', value: fmtInt(run.resolved_entities) },
-      { label: 'Matched Pairs', value: fmtInt(run.matched_pairs) },
-      { label: 'Match Found', value: fmtPct(precisionPct) },
-      { label: 'Miss-Matched', value: fmtPct(matchMissed) },
-      { label: 'False Positive', value: fmtInt(run.false_positive) },
-      { label: 'False Negative', value: fmtInt(run.false_negative) },
-      { label: 'False Positive %', value: fmtPct(fpPct) },
-      { label: 'Extra Pairs', value: fmtInt(extraPairs) },
-      { label: 'Match Gain', value: fmtPct(gainPct) },
+      { label: 'Entities', value: fmtInt(run.resolved_entities), help: getTheirMetricHelp('Entities') },
+      { label: 'Matched Pairs', value: fmtInt(run.matched_pairs), help: getTheirMetricHelp('Matched Pairs') },
+      { label: 'Match Found', value: fmtPct(precisionPct), help: getTheirMetricHelp('Match Found') },
+      { label: 'Miss-Matched', value: fmtPct(matchMissed), help: getTheirMetricHelp('Miss-Matched') },
+      { label: 'False Positive', value: fmtInt(run.false_positive), help: getTheirMetricHelp('False Positive') },
+      { label: 'False Negative', value: fmtInt(run.false_negative), help: getTheirMetricHelp('False Negative') },
+      { label: 'False Positive %', value: fmtPct(fpPct), help: getTheirMetricHelp('False Positive %') },
+      { label: 'Extra Pairs', value: fmtInt(extraPairs), help: getTheirMetricHelp('Extra Pairs') },
+      { label: 'Match Gain', value: fmtPct(gainPct), help: getTheirMetricHelp('Match Gain') },
     ];
 
     byId('ourMetricCards').innerHTML = ourCards
@@ -304,6 +342,17 @@
             <div class="card metric-card metric-card-our">
               <div class="card-body">
                 <div class="metric-label">${escapeHtml(card.label)}</div>
+                <span
+                  class="metric-help-icon"
+                  role="button"
+                  tabindex="0"
+                  data-help-text="${escapeHtml(card.help)}"
+                  data-bs-toggle="tooltip"
+                  data-bs-placement="top"
+                  data-bs-title="${escapeHtml(card.help)}"
+                  title="${escapeHtml(card.help)}"
+                  aria-label="${escapeHtml(card.help)}"
+                >i</span>
                 <div class="metric-value">${escapeHtml(card.value)}</div>
               </div>
             </div>
@@ -319,6 +368,17 @@
             <div class="card metric-card">
               <div class="card-body">
                 <div class="metric-label">${escapeHtml(card.label)}</div>
+                <span
+                  class="metric-help-icon"
+                  role="button"
+                  tabindex="0"
+                  data-help-text="${escapeHtml(card.help)}"
+                  data-bs-toggle="tooltip"
+                  data-bs-placement="top"
+                  data-bs-title="${escapeHtml(card.help)}"
+                  title="${escapeHtml(card.help)}"
+                  aria-label="${escapeHtml(card.help)}"
+                >i</span>
                 <div class="metric-value">${escapeHtml(card.value)}</div>
               </div>
             </div>
@@ -326,6 +386,9 @@
         `
       )
       .join('');
+
+    byId('inputRecordsValue').textContent = fmtInt(run.records_input);
+    refreshTooltips();
   }
 
   function renderSelector() {
@@ -448,6 +511,7 @@
   function renderCurrent() {
     const run = getRun(state.selectedRunId);
     if (!run) {
+      byId('inputRecordsValue').textContent = 'n/a';
       byId('ourMetricCards').innerHTML =
         '<div class="col-12"><div class="alert alert-warning">No data available for selected run.</div></div>';
       byId('theirMetricCards').innerHTML =
@@ -466,6 +530,7 @@
   }
 
   function renderEmptyState() {
+    byId('inputRecordsValue').textContent = 'n/a';
     byId('ourMetricCards').innerHTML =
       '<div class="col-12"><div class="alert alert-warning">Selected run details will appear here after the first successful run.</div></div>';
     byId('theirMetricCards').innerHTML =
