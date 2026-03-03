@@ -48,7 +48,7 @@
       return 'n/a';
     }
     const pct = (value / total) * 100;
-    return `${pct.toFixed(2)}% (${fmtOutOf(value, total)})`;
+    return `${pct.toFixed(2)}%`;
   }
 
   function asNumber(value) {
@@ -60,34 +60,6 @@
       return null;
     }
     return (num / den) * 100;
-  }
-
-  function formulaPctFromCounts(num, den, fallbackPct) {
-    if (typeof num === 'number' && typeof den === 'number' && den > 0) {
-      const pct = (num / den) * 100;
-      return `Formula: (${fmtInt(num)} / ${fmtInt(den)}) * 100 = ${pct.toFixed(2)}%`;
-    }
-    if (typeof fallbackPct === 'number') {
-      return `Formula result: ${fallbackPct.toFixed(2)}%`;
-    }
-    return 'Formula unavailable: missing numerator/denominator.';
-  }
-
-  function formulaSignedDeltaPct(a, b, den, fallbackPct, aLabel, bLabel) {
-    if (
-      typeof a === 'number' &&
-      typeof b === 'number' &&
-      typeof den === 'number' &&
-      den > 0
-    ) {
-      const delta = a - b;
-      const pct = (delta / den) * 100;
-      return `Formula: ((${aLabel} ${fmtInt(a)} - ${bLabel} ${fmtInt(b)}) / ${fmtInt(den)}) * 100 = ${pct.toFixed(2)}%`;
-    }
-    if (typeof fallbackPct === 'number') {
-      return `Formula result: ${fallbackPct.toFixed(2)}%`;
-    }
-    return 'Formula unavailable: missing components.';
   }
 
   function escapeHtml(text) {
@@ -105,37 +77,13 @@
     const theirGroupedMembers = asNumber(run.their_grouped_members);
     const ourEntities = asNumber(run.our_entities_formed) ?? asNumber(run.our_resolved_entities);
     const theirEntities = asNumber(run.their_entities_formed) ?? asNumber(run.resolved_entities);
-    const ourMatchPct = asNumber(run.our_match_pct) ?? ratioPct(ourGroupedMembers, inputRecords);
-    const ourMatchGainLossPct = asNumber(run.our_match_gain_loss_pct);
-    const ourEntityGainLossPct = asNumber(run.our_entity_gain_loss_pct);
+    const isPartial = asNumber(run.records_input_reported) > asNumber(run.records_input);
 
     const map = {
-      'Match %':
-        'Share of input records in Our groups (size > 1). ' +
-        formulaPctFromCounts(ourGroupedMembers, inputRecords, ourMatchPct),
-      'Entities out of Records': typeof ourEntities === 'number' && typeof inputRecords === 'number' && inputRecords > 0
-        ? `Formula: (${fmtInt(ourEntities)} / ${fmtInt(inputRecords)}) * 100 = ${((ourEntities / inputRecords) * 100).toFixed(2)}%`
-        : 'Formula unavailable: missing entities or input records.',
-      'Match Gain/Loss %':
-        'Delta of grouped records vs Their grouped records over total input. ' +
-        formulaSignedDeltaPct(
-          ourGroupedMembers,
-          theirGroupedMembers,
-          inputRecords,
-          ourMatchGainLossPct,
-          'Our grouped',
-          'Their grouped'
-        ),
-      'Entity Gain/Loss %':
-        'Delta of Our entities vs Their entities over total input. ' +
-        formulaSignedDeltaPct(
-          ourEntities,
-          theirEntities,
-          inputRecords,
-          ourEntityGainLossPct,
-          'Our entities',
-          'Their entities'
-        ),
+      'Match %': `Percentage of loaded records that Our reference (SOURCE_IPG_ID groups) considers matched, meaning records that belong to groups with at least 2 members.${isPartial ? ' This run is partial, so percentages refer only to loaded records.' : ''}`,
+      'Entities out of Records': 'Percentage of loaded records represented as unique entities in Our reference grouping. Records with missing/blank IPG are treated as singleton entities (size 1). Higher values usually indicate more fragmentation (more small groups or singletons).',
+      'Match Gain/Loss %': 'Difference between Our and Their matched-record coverage on the same loaded population. Positive means Our side groups more records; negative means Their side groups more records.',
+      'Entity Gain/Loss %': 'Difference between Our and Their entity counts on the same loaded population. Positive means Our side forms more entities (typically more fragmented); negative means Their side forms more entities.',
     };
     return map[label] || '';
   }
@@ -146,37 +94,13 @@
     const theirGroupedMembers = asNumber(run.their_grouped_members);
     const ourEntities = asNumber(run.our_entities_formed) ?? asNumber(run.our_resolved_entities);
     const theirEntities = asNumber(run.their_entities_formed) ?? asNumber(run.resolved_entities);
-    const theirMatchPct = asNumber(run.their_match_pct) ?? ratioPct(theirGroupedMembers, inputRecords);
-    const theirMatchGainLossPct = asNumber(run.their_match_gain_loss_pct);
-    const theirEntityGainLossPct = asNumber(run.their_entity_gain_loss_pct);
+    const isPartial = asNumber(run.records_input_reported) > asNumber(run.records_input);
 
     const map = {
-      'Match %':
-        'Share of input records in Their resolved entities (size > 1). ' +
-        formulaPctFromCounts(theirGroupedMembers, inputRecords, theirMatchPct),
-      'Entities out of Records': typeof theirEntities === 'number' && typeof inputRecords === 'number' && inputRecords > 0
-        ? `Formula: (${fmtInt(theirEntities)} / ${fmtInt(inputRecords)}) * 100 = ${((theirEntities / inputRecords) * 100).toFixed(2)}%`
-        : 'Formula unavailable: missing entities or input records.',
-      'Match Gain/Loss %':
-        'Delta of Their grouped records vs Our grouped records over total input. ' +
-        formulaSignedDeltaPct(
-          theirGroupedMembers,
-          ourGroupedMembers,
-          inputRecords,
-          theirMatchGainLossPct,
-          'Their grouped',
-          'Our grouped'
-        ),
-      'Entity Gain/Loss %':
-        'Delta of Their entities vs Our entities over total input. ' +
-        formulaSignedDeltaPct(
-          theirEntities,
-          ourEntities,
-          inputRecords,
-          theirEntityGainLossPct,
-          'Their entities',
-          'Our entities'
-        ),
+      'Match %': `Percentage of loaded records that Their engine resolves into multi-record entities (at least 2 records per entity).${isPartial ? ' This run is partial, so percentages refer only to loaded records.' : ''}`,
+      'Entities out of Records': 'Percentage of loaded records represented as unique resolved entities by Their engine. Higher values usually indicate more fragmentation (more small groups or singletons).',
+      'Match Gain/Loss %': 'Difference between Their and Our matched-record coverage on the same loaded population. Positive means Their side groups more records; negative means Our side groups more records.',
+      'Entity Gain/Loss %': 'Difference between Their and Our entity counts on the same loaded population. Positive means Their side forms more entities (typically more fragmented); negative means Our side forms more entities.',
     };
     return map[label] || '';
   }
@@ -191,6 +115,21 @@
         trigger: 'hover focus',
       });
     });
+  }
+
+  function setTooltipText(element, text) {
+    if (!element || typeof text !== 'string') {
+      return;
+    }
+    element.setAttribute('data-bs-title', text);
+    element.setAttribute('title', text);
+    element.setAttribute('aria-label', text);
+    if (window.bootstrap && typeof window.bootstrap.Tooltip === 'function') {
+      const instance = window.bootstrap.Tooltip.getInstance(element);
+      if (instance) {
+        instance.dispose();
+      }
+    }
   }
 
   function getAllRuns() {
@@ -229,21 +168,19 @@
     const theirGroupedMembers = asNumber(run.their_grouped_members);
     const ourMatchPct = asNumber(run.our_match_pct) ?? ratioPct(ourGroupedMembers, inputRecords);
     const theirMatchPct = asNumber(run.their_match_pct) ?? ratioPct(theirGroupedMembers, inputRecords);
-    const ourMatchGainLossPct = asNumber(run.our_match_gain_loss_pct);
+    const ourEntitiesPct = ratioPct(ourEntities, inputRecords);
+    const theirEntitiesPct = ratioPct(theirEntities, inputRecords);
     const theirMatchGainLossPct = asNumber(run.their_match_gain_loss_pct);
-    const ourEntityGainLossPct = asNumber(run.our_entity_gain_loss_pct);
     const theirEntityGainLossPct = asNumber(run.their_entity_gain_loss_pct);
 
     const ourCards = [
       { label: 'Match %', value: fmtPct(ourMatchPct), help: getOurMetricHelp('Match %', run) },
-      { label: 'Entities out of Records', value: fmtPctOutOf(ourEntities, inputRecords), help: getOurMetricHelp('Entities out of Records', run) },
-      { label: 'Match Gain/Loss %', value: fmtSignedPct(ourMatchGainLossPct), help: getOurMetricHelp('Match Gain/Loss %', run) },
-      { label: 'Entity Gain/Loss %', value: fmtSignedPct(ourEntityGainLossPct), help: getOurMetricHelp('Entity Gain/Loss %', run) },
+      { label: 'Entities out of Records', value: fmtPct(ourEntitiesPct), help: getOurMetricHelp('Entities out of Records', run) },
     ];
 
     const theirCards = [
       { label: 'Match %', value: fmtPct(theirMatchPct), help: getTheirMetricHelp('Match %', run) },
-      { label: 'Entities out of Records', value: fmtPctOutOf(theirEntities, inputRecords), help: getTheirMetricHelp('Entities out of Records', run) },
+      { label: 'Entities out of Records', value: fmtPct(theirEntitiesPct), help: getTheirMetricHelp('Entities out of Records', run) },
       { label: 'Match Gain/Loss %', value: fmtSignedPct(theirMatchGainLossPct), help: getTheirMetricHelp('Match Gain/Loss %', run) },
       { label: 'Entity Gain/Loss %', value: fmtSignedPct(theirEntityGainLossPct), help: getTheirMetricHelp('Entity Gain/Loss %', run) },
     ];
@@ -407,30 +344,65 @@
     if (typeof rawKey !== 'string') {
       return '';
     }
-    return rawKey.replaceAll('+', ', ');
+    return rawKey
+      .replace(/TAX[_-]?ID/gi, '<<TAXIDTOKEN>>')
+      .replace(/[+_-]+/g, ', ')
+      .replace(/<<TAXIDTOKEN>>/g, 'Tax ID')
+      .replace(/\s*,\s*/g, ', ')
+      .replace(/(,\s*){2,}/g, ', ')
+      .replace(/^,\s*|\s*,$/g, '')
+      .trim();
   }
 
   function renderTopMatchKeys(run) {
     const container = byId('matchKeyList');
+    const totalEl = byId('matchKeyTotalValue');
+    const totalInfoEl = byId('matchKeyTotalInfo');
     if (!container) {
       return;
     }
     const topKeys = Array.isArray(run.top_match_keys) ? run.top_match_keys : [];
     if (!topKeys.length) {
       container.innerHTML = '<div class="match-key-empty">No match keys available for this run.</div>';
+      if (totalEl) {
+        totalEl.innerHTML = '<span>Top 10: n/a</span><span>Total pairs: n/a</span>';
+      }
+      if (totalInfoEl) {
+        setTooltipText(
+          totalInfoEl,
+          'Top 10 pairs are the pairs covered by the 10 keys shown. Total pairs are all unique matched record pairs in this run.'
+        );
+        refreshTooltips();
+      }
       return;
     }
 
     const counts = topKeys.map((item) => (typeof item[1] === 'number' ? item[1] : 0));
     const maxCount = Math.max(...counts, 1);
-    const total = counts.reduce((acc, value) => acc + value, 0) || 1;
+    const top10Total = counts.reduce((acc, value) => acc + value, 0);
+    const totalPairs =
+      typeof run.top_match_keys_total_pairs === 'number' && run.top_match_keys_total_pairs > 0
+        ? run.top_match_keys_total_pairs
+        : top10Total;
+    const coveragePct = totalPairs > 0 ? (top10Total / totalPairs) * 100 : null;
+    if (totalEl) {
+      totalEl.innerHTML = `<span>Top 10: ${fmtInt(top10Total)}</span><span>Total pairs: ${fmtInt(totalPairs)}</span>`;
+    }
+    if (totalInfoEl) {
+      const coverageText = typeof coveragePct === 'number' ? `${coveragePct.toFixed(2)}%` : 'n/a';
+      setTooltipText(
+        totalInfoEl,
+        `Top 10 pairs are the sum of pairs covered by the 10 keys shown (${fmtInt(top10Total)}). Total pairs are all unique matched record pairs in this run (${fmtInt(totalPairs)}). Top 10 coverage: ${coverageText}.`
+      );
+      refreshTooltips();
+    }
 
     container.innerHTML = topKeys
       .map((item, index) => {
         const rawLabel = typeof item[0] === 'string' ? item[0] : '';
         const count = typeof item[1] === 'number' ? item[1] : 0;
         const widthPct = (count / maxCount) * 100;
-        const sharePct = (count / total) * 100;
+        const sharePct = top10Total > 0 ? (count / top10Total) * 100 : 0;
         return `
           <div class="match-key-row">
             <div class="match-key-rank">#${index + 1}</div>
@@ -455,6 +427,9 @@
     if (!run) {
       byId('inputRecordsValue').textContent = 'n/a';
       byId('executionMinutesValue').textContent = 'n/a';
+      if (byId('matchKeyTotalValue')) {
+        byId('matchKeyTotalValue').innerHTML = '<span>Top 10: n/a</span><span>Total pairs: n/a</span>';
+      }
       byId('ourMetricCards').innerHTML =
         '<div class="col-12"><div class="alert alert-warning">No data available for selected run.</div></div>';
       byId('theirMetricCards').innerHTML =
@@ -468,6 +443,9 @@
   function renderEmptyState() {
     byId('inputRecordsValue').textContent = 'n/a';
     byId('executionMinutesValue').textContent = 'n/a';
+    if (byId('matchKeyTotalValue')) {
+      byId('matchKeyTotalValue').innerHTML = '<span>Top 10: n/a</span><span>Total pairs: n/a</span>';
+    }
     byId('ourMetricCards').innerHTML =
       '<div class="col-12"><div class="alert alert-warning">Selected run details will appear here after the first successful run.</div></div>';
     byId('theirMetricCards').innerHTML =

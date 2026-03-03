@@ -12,6 +12,7 @@ import csv
 import subprocess
 import sys
 import functools
+from collections import Counter
 from pathlib import Path
 
 RUN_DIR_RE = re.compile(r"^(?P<ts>\d{8}_\d{6})(?:__(?P<label>[A-Za-z0-9._-]+))?$")
@@ -120,6 +121,7 @@ def load_entity_record_profile(path: Path) -> dict[str, Any]:
         "entity_pairings_distribution": {},
         "record_pairing_degree_distribution": {},
         "record_ids": set(),
+        "record_to_entity": {},
     }
     if not path.exists():
         return empty_profile
@@ -154,6 +156,7 @@ def load_entity_record_profile(path: Path) -> dict[str, Any]:
             "entity_pairings_distribution": {},
             "record_pairing_degree_distribution": {},
             "record_ids": set(),
+            "record_to_entity": {},
         }
 
     per_entity_records: dict[str, int] = {}
@@ -181,6 +184,7 @@ def load_entity_record_profile(path: Path) -> dict[str, Any]:
         "entity_pairings_distribution": {str(k): v for k, v in sorted(pairings_distribution.items())},
         "record_pairing_degree_distribution": {str(k): v for k, v in sorted(degree_distribution.items())},
         "record_ids": record_ids,
+        "record_to_entity": {k: v[1] for k, v in record_to_entity.items()},
     }
 
 
@@ -250,11 +254,13 @@ def summarize_source_ipg_groups(input_source_json: Path, record_ids_filter: set[
     candidates = ("IPG ID", "IPG_ID", "ipg_id", "SOURCE_IPG_ID", "source_ipg_id")
     records_total = 0
     ipg_sizes: dict[str, int] = {}
+    missing_ipg_singletons = 0
 
     for index, record in enumerate(iter_input_source_records(input_source_json), start=1):
         if record_ids_filter is not None and str(index) not in record_ids_filter:
             continue
         records_total += 1
+        found_ipg = False
         for key in candidates:
             value = record.get(key)
             if value is None:
@@ -262,7 +268,11 @@ def summarize_source_ipg_groups(input_source_json: Path, record_ids_filter: set[
             text = str(value).strip()
             if text:
                 ipg_sizes[text] = ipg_sizes.get(text, 0) + 1
+                found_ipg = True
                 break
+        if not found_ipg:
+            # Business rule: missing/blank IPG is treated as a singleton entity.
+            missing_ipg_singletons += 1
 
     if records_total == 0:
         return {"records_total": 0, "entities_total": None, "grouped_members": None, "entity_size_distribution": {}}
@@ -271,9 +281,11 @@ def summarize_source_ipg_groups(input_source_json: Path, record_ids_filter: set[
     size_distribution: dict[int, int] = {}
     for size in ipg_sizes.values():
         size_distribution[size] = size_distribution.get(size, 0) + 1
+    if missing_ipg_singletons > 0:
+        size_distribution[1] = size_distribution.get(1, 0) + missing_ipg_singletons
     return {
         "records_total": records_total,
-        "entities_total": len(ipg_sizes),
+        "entities_total": len(ipg_sizes) + missing_ipg_singletons,
         "grouped_members": grouped_members,
         "entity_size_distribution": {str(k): v for k, v in sorted(size_distribution.items())},
     }
@@ -285,6 +297,65 @@ def summarize_resolved_entity_groups(entity_records_csv: Path) -> dict[str, int 
         "records_total": profile.get("records_total"),
         "entities_total": profile.get("entities_total"),
         "grouped_members": profile.get("grouped_members"),
+    }
+
+
+def build_top_match_keys_from_unique_pairs(
+    matched_pairs_csv: Path,
+    entity_profile: dict[str, Any],
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Build Top Match Keys from unique final pairs (one key per unordered pair)."""
+    if not matched_pairs_csv.exists():
+        return {"top_match_keys": [], "total_pairs": 0, "top_pairs_total": 0}
+    record_to_entity = {}
+    if isinstance(entity_profile.get("record_to_entity"), dict):
+        record_to_entity = entity_profile.get("record_to_entity") or {}
+
+    best_key_by_pair: dict[tuple[tuple[str, str], tuple[str, str]], tuple[int, str]] = {}
+    with matched_pairs_csv.open("r", encoding="utf-8", newline="") as infile:
+        reader = csv.DictReader(infile)
+        for row in reader:
+            anchor_ds = str(row.get("anchor_data_source") or "").strip()
+            anchor_rid = str(row.get("anchor_record_id") or "").strip()
+            match_ds = str(row.get("matched_data_source") or "").strip()
+            match_rid = str(row.get("matched_record_id") or "").strip()
+            if not anchor_rid or not match_rid:
+                continue
+
+            a_key = f"{anchor_ds}::{anchor_rid}" if anchor_ds else anchor_rid
+            b_key = f"{match_ds}::{match_rid}" if match_ds else match_rid
+            if record_to_entity:
+                a_ent = record_to_entity.get(a_key)
+                b_ent = record_to_entity.get(b_key)
+                # Keep only pairs that are in the same final resolved entity.
+                if not a_ent or not b_ent or a_ent != b_ent:
+                    continue
+
+            pair = tuple(sorted([(anchor_ds, anchor_rid), (match_ds, match_rid)]))
+            match_key = str(row.get("match_key") or "").strip()
+            if not match_key:
+                continue
+            try:
+                level = int(str(row.get("match_level") or "").strip())
+            except ValueError:
+                level = 999999
+
+            current = best_key_by_pair.get(pair)
+            if current is None or level < current[0] or (level == current[0] and match_key < current[1]):
+                best_key_by_pair[pair] = (level, match_key)
+
+    counter: Counter[str] = Counter()
+    for _, match_key in best_key_by_pair.values():
+        counter[match_key] += 1
+    top = counter.most_common(limit)
+    top_list = [[key, count] for key, count in top]
+    total_pairs = int(sum(counter.values()))
+    top_pairs_total = int(sum(count for _, count in top))
+    return {
+        "top_match_keys": top_list,
+        "total_pairs": total_pairs,
+        "top_pairs_total": top_pairs_total,
     }
 
 
@@ -465,6 +536,26 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
     )
     entity_records_csv = technical_dir / "entity_records.csv"
     entity_profile = load_entity_record_profile(entity_records_csv)
+    top_match_keys_payload = build_top_match_keys_from_unique_pairs(
+        matched_pairs_csv=technical_dir / "matched_pairs.csv",
+        entity_profile=entity_profile,
+        limit=10,
+    )
+    top_match_keys_unique = (
+        top_match_keys_payload.get("top_match_keys")
+        if isinstance(top_match_keys_payload.get("top_match_keys"), list)
+        else []
+    )
+    top_match_keys_total_pairs = (
+        top_match_keys_payload.get("total_pairs")
+        if isinstance(top_match_keys_payload.get("total_pairs"), int)
+        else None
+    )
+    top_match_keys_top10_total = (
+        top_match_keys_payload.get("top_pairs_total")
+        if isinstance(top_match_keys_payload.get("top_pairs_total"), int)
+        else None
+    )
     entity_distributions = {
         "entity_size_distribution": entity_profile.get("entity_size_distribution", {}) or {},
         "entity_pairings_distribution": entity_profile.get("entity_pairings_distribution", {}) or {},
@@ -698,7 +789,9 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
         "predicted_pairs_labeled": predicted_pairs_labeled,
         "ground_truth_pairs_labeled": ground_truth_pairs_labeled,
         "match_level_distribution": management_summary.get("match_level_distribution", {}),
-        "top_match_keys": sorted(
+        "top_match_keys": top_match_keys_unique
+        if top_match_keys_unique
+        else sorted(
             (
                 (
                     str(key),
@@ -710,6 +803,8 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
             key=lambda item: item[1],
             reverse=True,
         )[:10],
+        "top_match_keys_total_pairs": top_match_keys_total_pairs,
+        "top_match_keys_top10_total": top_match_keys_top10_total,
         "entity_size_distribution": entity_distributions.get("entity_size_distribution")
         or distribution_metrics.get("entity_size_distribution", {}),
         "our_entity_size_distribution": our_entity_size_distribution,

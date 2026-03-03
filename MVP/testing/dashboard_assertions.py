@@ -213,10 +213,12 @@ def summarize_source_ipg_groups(input_source_json: Path, record_ids_filter: set[
 
     ipg_sizes: dict[str, int] = {}
     records_total = 0
+    missing_ipg_singletons = 0
     for index, record in enumerate(iter_input_source_records(input_source_json), start=1):
         if record_ids_filter is not None and str(index) not in record_ids_filter:
             continue
         records_total += 1
+        found_ipg = False
         for key in IPG_ID_CANDIDATE_KEYS:
             raw_value = record.get(key)
             if raw_value is None:
@@ -224,16 +226,21 @@ def summarize_source_ipg_groups(input_source_json: Path, record_ids_filter: set[
             text = str(raw_value).strip()
             if text:
                 ipg_sizes[text] = ipg_sizes.get(text, 0) + 1
+                found_ipg = True
                 break
+        if not found_ipg:
+            missing_ipg_singletons += 1
     if records_total == 0:
         return {"records_total": 0, "entities_total": None, "grouped_members": None, "entity_size_distribution": {}}
     grouped_members = sum(size for size in ipg_sizes.values() if size > 1)
     size_distribution: dict[int, int] = {}
     for size in ipg_sizes.values():
         size_distribution[size] = size_distribution.get(size, 0) + 1
+    if missing_ipg_singletons > 0:
+        size_distribution[1] = size_distribution.get(1, 0) + missing_ipg_singletons
     return {
         "records_total": records_total,
-        "entities_total": len(ipg_sizes),
+        "entities_total": len(ipg_sizes) + missing_ipg_singletons,
         "grouped_members": grouped_members,
         "entity_size_distribution": {str(k): v for k, v in sorted(size_distribution.items())},
     }
