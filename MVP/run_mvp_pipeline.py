@@ -8,12 +8,18 @@ import csv
 from collections import Counter, defaultdict
 import datetime as dt
 import json
+import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+LARGE_RUN_THRESHOLD_DEFAULT = 300_000
+LARGE_RUN_TIMEOUT_SECONDS_DEFAULT = 10_800
+LARGE_RUN_PRECHECK_MIN_FREE_GB_DEFAULT = 20.0
 
 
 def now_timestamp() -> str:
@@ -40,6 +46,66 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--docker-platform", default="linux/amd64", help="Docker platform (default: linux/amd64)")
     parser.add_argument("--step-timeout-seconds", type=int, default=1800, help="Timeout per E2E step")
+    parser.add_argument("--load-threads", type=int, default=4, help="Primary sz_file_loader threads (default: 4)")
+    parser.add_argument(
+        "--load-fallback-threads",
+        type=int,
+        default=1,
+        help="Fallback sz_file_loader threads on retry (default: 1)",
+    )
+    parser.add_argument("--snapshot-threads", type=int, default=4, help="Primary sz_snapshot threads (default: 4)")
+    parser.add_argument(
+        "--snapshot-fallback-threads",
+        type=int,
+        default=1,
+        help="Fallback sz_snapshot threads on retry (default: 1)",
+    )
+    parser.add_argument(
+        "--load-no-shuffle-primary",
+        action="store_true",
+        help="Disable shuffle in primary sz_file_loader attempt.",
+    )
+    parser.add_argument(
+        "--disable-large-run-tuning",
+        action="store_true",
+        help="Disable automatic tuning for large inputs.",
+    )
+    parser.add_argument(
+        "--large-run-threshold",
+        type=int,
+        default=LARGE_RUN_THRESHOLD_DEFAULT,
+        help=f"Input size threshold for automatic tuning (default: {LARGE_RUN_THRESHOLD_DEFAULT}).",
+    )
+    parser.add_argument(
+        "--large-run-timeout-seconds",
+        type=int,
+        default=LARGE_RUN_TIMEOUT_SECONDS_DEFAULT,
+        help=f"Auto-timeout floor for large runs (default: {LARGE_RUN_TIMEOUT_SECONDS_DEFAULT}).",
+    )
+    parser.add_argument(
+        "--large-run-min-free-gb",
+        type=float,
+        default=LARGE_RUN_PRECHECK_MIN_FREE_GB_DEFAULT,
+        help=(
+            "Minimum free disk GB required by preflight for large runs "
+            f"(default: {LARGE_RUN_PRECHECK_MIN_FREE_GB_DEFAULT})."
+        ),
+    )
+    parser.add_argument(
+        "--strict-preflight",
+        action="store_true",
+        help="Fail fast when preflight disk checks are below recommended threshold.",
+    )
+    parser.add_argument(
+        "--stream-export",
+        action="store_true",
+        help="Force stream-export mode in E2E (avoids writing standalone export CSV).",
+    )
+    parser.add_argument(
+        "--with-snapshot",
+        action="store_true",
+        help="Enable snapshot extraction (disabled by default for faster/lighter runs)",
+    )
     parser.add_argument(
         "--with-why",
         action="store_true",
@@ -83,11 +149,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not delete runtime directory after completion",
     )
+    parser.add_argument(
+        "--license-base64-file",
+        default=None,
+        help=(
+            "Optional path to Senzing LICENSESTRINGBASE64 file. "
+            "If omitted, auto-detects MVP/.secrets/g2.lic_base64 and MVP/license/g2.lic_base64."
+        ),
+    )
     return parser.parse_args()
 
 
-def run_command(command: list[str], cwd: Path) -> None:
-    subprocess.run(command, cwd=str(cwd), check=True)
+def run_command(command: list[str], cwd: Path, env_overrides: dict[str, str] | None = None) -> None:
+    env = os.environ.copy()
+    if env_overrides:
+        env.update(env_overrides)
+    subprocess.run(command, cwd=str(cwd), check=True, env=env)
 
 
 def sanitize_output_label(raw_label: str) -> str:
@@ -113,7 +190,43 @@ def check_docker_ready() -> tuple[bool, str]:
     return False, detail[-1] if detail else "docker not available"
 
 
+def read_license_string(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    compact = "".join(text.split())
+    return compact if compact else None
+
+
+def resolve_license_string(mvp_root: Path, explicit_path: str | None) -> tuple[str | None, str | None]:
+    candidates: list[Path] = []
+    if explicit_path:
+        candidates.append(Path(explicit_path).expanduser())
+    env_path = os.environ.get("SENZING_LICENSE_BASE64_FILE", "").strip()
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+    candidates.extend(
+        [
+            mvp_root / ".secrets" / "g2.lic_base64",
+            mvp_root / "license" / "g2.lic_base64",
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        license_string = read_license_string(resolved)
+        if license_string:
+            return license_string, str(resolved)
+    return None, None
+
+
 def detect_input_array_key(input_json: Path) -> str | None:
+    if input_json.suffix.lower() == ".jsonl":
+        return None
     try:
         payload = json.loads(input_json.read_text(encoding="utf-8"))
     except Exception:
@@ -124,6 +237,61 @@ def detect_input_array_key(input_json: Path) -> str | None:
         for candidate in ["records", "data", "items"]:
             if isinstance(payload.get(candidate), list):
                 return candidate
+    return None
+
+
+def count_non_empty_lines(path: Path) -> int:
+    total = 0
+    with path.open("r", encoding="utf-8") as infile:
+        for line in infile:
+            if line.strip():
+                total += 1
+    return total
+
+
+def count_source_records(input_json: Path, input_array_key: str | None) -> int:
+    if input_json.suffix.lower() == ".jsonl":
+        return count_non_empty_lines(input_json)
+    total = 0
+    for _ in iter_source_records(input_json, input_array_key):
+        total += 1
+    return total
+
+
+def bytes_to_gb(value: int) -> float:
+    return value / (1024.0**3)
+
+
+def estimate_large_run_required_gb(source_record_count: int, configured_min_gb: float) -> float:
+    if source_record_count <= 0:
+        return configured_min_gb
+    # Conservative estimate for SQLite + export + temp files on high-volume runs.
+    estimated = max(8.0, (source_record_count / 100_000.0) * 2.0)
+    return max(configured_min_gb, estimated)
+
+
+def collect_disk_space_snapshot(paths: list[Path]) -> dict[str, dict[str, float]]:
+    snapshot: dict[str, dict[str, float]] = {}
+    for path in paths:
+        usage = shutil.disk_usage(path)
+        snapshot[str(path)] = {
+            "total_gb": round(bytes_to_gb(usage.total), 2),
+            "used_gb": round(bytes_to_gb(usage.used), 2),
+            "free_gb": round(bytes_to_gb(usage.free), 2),
+        }
+    return snapshot
+
+
+def host_architecture_note(execution_mode: str, docker_platform: str) -> str | None:
+    if execution_mode != "docker":
+        return None
+    host_machine = platform.machine().lower()
+    requested = docker_platform.lower()
+    if host_machine in {"arm64", "aarch64"} and "amd64" in requested:
+        return (
+            "Host is ARM64 but Docker platform is linux/amd64 (emulation). "
+            "Large runs can be significantly slower and may require higher timeouts."
+        )
     return None
 
 
@@ -159,7 +327,21 @@ def text_from_keys(record: dict[str, object], keys: list[str]) -> str:
     return ""
 
 
-def load_source_records(input_json: Path, input_array_key: str | None) -> list[dict[str, object]]:
+def iter_source_records(input_json: Path, input_array_key: str | None):
+    if input_json.suffix.lower() == ".jsonl":
+        with input_json.open("r", encoding="utf-8") as infile:
+            for line_no, line in enumerate(infile, start=1):
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError as err:
+                    raise ValueError(f"Invalid JSON on line {line_no} of {input_json}: {err}") from err
+                if isinstance(payload, dict):
+                    yield payload
+        return
+
     payload = json.loads(input_json.read_text(encoding="utf-8"))
     if isinstance(payload, list):
         records = payload
@@ -170,14 +352,16 @@ def load_source_records(input_json: Path, input_array_key: str | None) -> list[d
         raise TypeError("Unsupported source JSON root type")
     if not isinstance(records, list):
         raise TypeError("Source records array not found in input JSON")
-    validated: list[dict[str, object]] = []
     for item in records:
         if isinstance(item, dict):
-            validated.append(item)
-    return validated
+            yield item
 
 
-def compute_extra_match_metrics(source_records: list[dict[str, object]], matched_pairs_csv: Path) -> dict[str, object] | None:
+def compute_extra_match_metrics(
+    source_input_json: Path,
+    input_array_key: str | None,
+    matched_pairs_csv: Path,
+) -> dict[str, object] | None:
     if not matched_pairs_csv.exists():
         return None
 
@@ -191,16 +375,18 @@ def compute_extra_match_metrics(source_records: list[dict[str, object]], matched
     ]
     ipg_keys = ["IPG ID", "IPG_ID", "ipg_id", "SOURCE_IPG_ID", "source_ipg_id"]
 
-    record_truth: dict[str, dict[str, str]] = {}
+    record_truth: dict[str, tuple[str, str]] = {}
     true_group_counts: Counter[str] = Counter()
     ipg_true_group_counts: dict[str, Counter[str]] = defaultdict(Counter)
     records_with_true_group = 0
     records_with_ipg = 0
 
-    for index, record in enumerate(source_records, start=1):
+    records_total = 0
+    for index, record in enumerate(iter_source_records(source_input_json, input_array_key), start=1):
+        records_total += 1
         true_group = text_from_keys(record, true_group_keys)
         ipg_id = text_from_keys(record, ipg_keys)
-        record_truth[str(index)] = {"true_group": true_group, "ipg_id": ipg_id}
+        record_truth[str(index)] = (true_group, ipg_id)
         if true_group:
             records_with_true_group += 1
             true_group_counts[true_group] += 1
@@ -237,10 +423,8 @@ def compute_extra_match_metrics(source_records: list[dict[str, object]], matched
             if not anchor_meta or not matched_meta:
                 continue
 
-            anchor_true_group = anchor_meta["true_group"]
-            matched_true_group = matched_meta["true_group"]
-            anchor_ipg = anchor_meta["ipg_id"]
-            matched_ipg = matched_meta["ipg_id"]
+            anchor_true_group, anchor_ipg = anchor_meta
+            matched_true_group, matched_ipg = matched_meta
 
             is_true_pair = bool(anchor_true_group and matched_true_group and anchor_true_group == matched_true_group)
             is_known_pair = bool(anchor_ipg and matched_ipg and anchor_ipg == matched_ipg)
@@ -262,6 +446,7 @@ def compute_extra_match_metrics(source_records: list[dict[str, object]], matched
 
     return {
         "available": True,
+        "records_input": records_total,
         "records_with_true_group": records_with_true_group,
         "records_with_ipg": records_with_ipg,
         "true_pairs_total": true_pairs_total,
@@ -301,8 +486,11 @@ def enrich_management_summary_with_extra_metrics(
     if not management_json.exists() or not management_md.exists() or not matched_pairs_csv.exists():
         return
 
-    source_records = load_source_records(source_input_json, input_array_key)
-    discovery_metrics = compute_extra_match_metrics(source_records, matched_pairs_csv)
+    discovery_metrics = compute_extra_match_metrics(
+        source_input_json=source_input_json,
+        input_array_key=input_array_key,
+        matched_pairs_csv=matched_pairs_csv,
+    )
     if not discovery_metrics:
         return
 
@@ -360,6 +548,11 @@ def enrich_management_summary_with_extra_metrics(
 def copy_if_exists(source: Path, destination: Path) -> bool:
     if not source.exists():
         return False
+    try:
+        if source.resolve() == destination.resolve():
+            return True
+    except FileNotFoundError:
+        pass
     shutil.copy2(source, destination)
     return True
 
@@ -394,6 +587,7 @@ def copy_artifacts_to_output(
     copied: dict[str, str] = {}
     technical_dir = output_run_dir / "technical output"
     technical_dir.mkdir(parents=True, exist_ok=True)
+    source_copy_name = "input_source.jsonl" if source_input_json.suffix.lower() == ".jsonl" else "input_source.json"
 
     def to_host_path(raw_path: Path) -> Path:
         raw = str(raw_path)
@@ -404,7 +598,7 @@ def copy_artifacts_to_output(
         return raw_path
 
     targets = {
-        source_input_json: output_run_dir / "input_source.json",
+        source_input_json: output_run_dir / source_copy_name,
         mapped_output_jsonl: technical_dir / "mapped_output.jsonl",
         field_map_json: technical_dir / "field_map.json",
         mapping_summary_json: technical_dir / "mapping_summary.json",
@@ -440,6 +634,25 @@ def copy_artifacts_to_output(
 
 def main() -> int:
     args = parse_args()
+    if args.step_timeout_seconds <= 0:
+        print("ERROR: --step-timeout-seconds must be > 0", file=sys.stderr)
+        return 2
+    if args.load_threads <= 0 or args.load_fallback_threads <= 0:
+        print("ERROR: --load-threads and --load-fallback-threads must be > 0", file=sys.stderr)
+        return 2
+    if args.snapshot_threads <= 0 or args.snapshot_fallback_threads <= 0:
+        print("ERROR: --snapshot-threads and --snapshot-fallback-threads must be > 0", file=sys.stderr)
+        return 2
+    if args.large_run_threshold < 0:
+        print("ERROR: --large-run-threshold must be >= 0", file=sys.stderr)
+        return 2
+    if args.large_run_timeout_seconds <= 0:
+        print("ERROR: --large-run-timeout-seconds must be > 0", file=sys.stderr)
+        return 2
+    if args.large_run_min_free_gb <= 0:
+        print("ERROR: --large-run-min-free-gb must be > 0", file=sys.stderr)
+        return 2
+
     mvp_root = Path(__file__).resolve().parent
     input_json = Path(args.input_json).expanduser().resolve()
 
@@ -471,16 +684,58 @@ def main() -> int:
         runtime_dir = Path(tempfile.mkdtemp(prefix="mvp_runtime_"))
         runtime_created = True
 
-    runtime_output = runtime_dir / "output"
     runtime_runs = runtime_dir / "runs"
     runtime_projects = runtime_dir / "projects"
-    runtime_output.mkdir(parents=True, exist_ok=True)
     runtime_runs.mkdir(parents=True, exist_ok=True)
     runtime_projects.mkdir(parents=True, exist_ok=True)
+    technical_output_dir = output_run_dir / "technical output"
+    technical_output_dir.mkdir(parents=True, exist_ok=True)
 
-    mapped_output_jsonl = runtime_output / f"partner_output_senzing_from_input_{ts}.jsonl"
-    field_map_json = runtime_output / f"field_map_from_input_{ts}.json"
-    mapping_summary_json = runtime_output / f"mapping_summary_from_input_{ts}.json"
+    mapped_output_jsonl = technical_output_dir / "mapped_output.jsonl"
+    field_map_json = technical_output_dir / "field_map.json"
+    mapping_summary_json = technical_output_dir / "mapping_summary.json"
+    effective_input_array_key = args.input_array_key or detect_input_array_key(input_json)
+
+    source_records_detected = count_source_records(input_json, effective_input_array_key)
+    large_input_detected = source_records_detected >= args.large_run_threshold
+    effective_step_timeout_seconds = args.step_timeout_seconds
+    effective_load_threads = args.load_threads
+    effective_load_fallback_threads = args.load_fallback_threads
+    effective_snapshot_threads = args.snapshot_threads
+    effective_snapshot_fallback_threads = args.snapshot_fallback_threads
+    effective_load_no_shuffle_primary = bool(args.load_no_shuffle_primary)
+    large_run_tuning_applied = False
+    effective_stream_export = bool(args.stream_export)
+
+    if large_input_detected and not args.disable_large_run_tuning:
+        large_run_tuning_applied = True
+        effective_step_timeout_seconds = max(args.step_timeout_seconds, args.large_run_timeout_seconds)
+        effective_load_threads = min(effective_load_threads, 2)
+        effective_load_fallback_threads = 1
+        effective_snapshot_threads = min(effective_snapshot_threads, 2)
+        effective_snapshot_fallback_threads = 1
+        effective_load_no_shuffle_primary = True
+        effective_stream_export = True
+
+    disk_snapshot = collect_disk_space_snapshot([runtime_dir, output_root, output_run_dir, mvp_root])
+    min_free_disk_gb = min(item["free_gb"] for item in disk_snapshot.values())
+    required_free_disk_gb = estimate_large_run_required_gb(source_records_detected, args.large_run_min_free_gb)
+    preflight_ok = (not large_input_detected) or (min_free_disk_gb >= required_free_disk_gb)
+    if large_input_detected:
+        print(
+            "Preflight: "
+            f"records={source_records_detected:,}, min_free={min_free_disk_gb:.2f}GB, "
+            f"recommended_free={required_free_disk_gb:.2f}GB"
+        )
+    if not preflight_ok:
+        message = (
+            "Large-run preflight warning: free disk appears below recommended threshold "
+            f"({min_free_disk_gb:.2f}GB < {required_free_disk_gb:.2f}GB)."
+        )
+        if args.strict_preflight:
+            print(f"ERROR: {message}", file=sys.stderr)
+            return 2
+        print(f"WARNING: {message}")
 
     mapper_cmd = [
         sys.executable,
@@ -494,7 +749,6 @@ def main() -> int:
         "--write-field-map",
         str(field_map_json),
     ]
-    effective_input_array_key = args.input_array_key or detect_input_array_key(input_json)
     if effective_input_array_key:
         mapper_cmd.extend(["--array-key", effective_input_array_key])
     if args.include_unmapped_source_fields:
@@ -506,6 +760,7 @@ def main() -> int:
         "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
         "input_json": str(input_json),
         "source_input_name": input_json.name,
+        "source_records_detected": source_records_detected,
         "mapped_output_jsonl": str(mapped_output_jsonl),
         "field_map_json": str(field_map_json),
         "data_source": args.data_source,
@@ -515,6 +770,24 @@ def main() -> int:
         "output_label": derived_label or None,
         "include_unmapped_source_fields": bool(args.include_unmapped_source_fields),
         "runtime_dir": str(runtime_dir),
+        "large_input_detected": large_input_detected,
+        "large_run_tuning_applied": large_run_tuning_applied,
+        "effective_step_timeout_seconds": effective_step_timeout_seconds,
+        "effective_load_threads": effective_load_threads,
+        "effective_load_fallback_threads": effective_load_fallback_threads,
+        "effective_snapshot_threads": effective_snapshot_threads,
+        "effective_snapshot_fallback_threads": effective_snapshot_fallback_threads,
+        "effective_load_no_shuffle_primary": effective_load_no_shuffle_primary,
+        "effective_stream_export": effective_stream_export,
+        "with_snapshot": bool(args.with_snapshot),
+        "with_why": bool(args.with_why),
+        "preflight": {
+            "strict_preflight": bool(args.strict_preflight),
+            "disk_snapshot_gb": disk_snapshot,
+            "min_free_disk_gb": min_free_disk_gb,
+            "recommended_free_disk_gb": required_free_disk_gb,
+            "ok": preflight_ok,
+        },
     }
     mapping_summary_json.write_text(json.dumps(mapping_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -525,9 +798,26 @@ def main() -> int:
         return 2
     if execution_mode == "auto":
         execution_mode = "docker" if docker_ready else "local"
+    arch_note = host_architecture_note(execution_mode=execution_mode, docker_platform=args.docker_platform)
+    if arch_note:
+        print(f"WARNING: {arch_note}")
+
+    license_string, license_source_path = resolve_license_string(
+        mvp_root=mvp_root,
+        explicit_path=args.license_base64_file,
+    )
+    if license_string:
+        print(f"Senzing license detected from: {license_source_path}")
+    else:
+        print("WARNING: no Senzing license file detected; engine may run in 500-record evaluation mode.")
+
+    e2e_env: dict[str, str] = {}
+    if license_string:
+        e2e_env["SENZING_LICENSE_STRING_BASE64"] = license_string
 
     e2e_cmd: list[str]
     if execution_mode == "docker":
+        container_mapped_input = f"/workspace/{mapped_output_jsonl.relative_to(mvp_root).as_posix()}"
         e2e_cmd = [
             "docker",
             "run",
@@ -540,10 +830,20 @@ def main() -> int:
             f"{runtime_dir}:/runtime",
             "-w",
             "/workspace",
+        ]
+        if license_string:
+            e2e_cmd.extend(
+                [
+                    "-e",
+                    f"SENZING_LICENSE_STRING_BASE64={license_string}",
+                ]
+            )
+        e2e_cmd.extend(
+            [
             args.docker_image,
             "python3",
             "/workspace/run_senzing_end_to_end.py",
-            f"/runtime/output/{mapped_output_jsonl.name}",
+            container_mapped_input,
             "--output-root",
             "/runtime/runs",
             "--run-name-prefix",
@@ -556,8 +856,17 @@ def main() -> int:
             "--data-sources",
             args.data_source,
             "--step-timeout-seconds",
-            str(args.step_timeout_seconds),
-        ]
+            str(effective_step_timeout_seconds),
+            "--load-threads",
+            str(effective_load_threads),
+            "--load-fallback-threads",
+            str(effective_load_fallback_threads),
+            "--snapshot-threads",
+            str(effective_snapshot_threads),
+            "--snapshot-fallback-threads",
+            str(effective_snapshot_fallback_threads),
+            ]
+        )
     else:
         e2e_cmd = [
             sys.executable,
@@ -575,7 +884,15 @@ def main() -> int:
             "--data-sources",
             args.data_source,
             "--step-timeout-seconds",
-            str(args.step_timeout_seconds),
+            str(effective_step_timeout_seconds),
+            "--load-threads",
+            str(effective_load_threads),
+            "--load-fallback-threads",
+            str(effective_load_fallback_threads),
+            "--snapshot-threads",
+            str(effective_snapshot_threads),
+            "--snapshot-fallback-threads",
+            str(effective_snapshot_fallback_threads),
         ]
         if args.senzing_env:
             e2e_cmd.extend(["--senzing-env", str(Path(args.senzing_env).expanduser().resolve())])
@@ -585,19 +902,37 @@ def main() -> int:
         e2e_cmd.extend(["--max-explain-pairs", str(args.max_explain_pairs)])
     else:
         e2e_cmd.append("--skip-explain")
+    if not args.with_snapshot:
+        e2e_cmd.append("--skip-snapshot")
     if args.keep_loader_temp_files:
         e2e_cmd.append("--keep-loader-temp-files")
+    if effective_load_no_shuffle_primary:
+        e2e_cmd.append("--load-no-shuffle-primary")
+    if effective_stream_export:
+        e2e_cmd.append("--stream-export")
 
     mapping_summary["execution_mode"] = execution_mode
     mapping_summary["docker_probe"] = docker_note
+    mapping_summary["architecture_note"] = arch_note
+    mapping_summary["license_string_present"] = bool(license_string)
+    mapping_summary["license_source_path"] = license_source_path
     mapping_summary_json.write_text(json.dumps(mapping_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"E2E execution mode: {execution_mode}")
+    print(f"Input records detected: {source_records_detected:,}")
+    print(f"Snapshot enabled: {bool(args.with_snapshot)}")
+    if large_run_tuning_applied:
+        print(
+            "Large-run tuning: enabled "
+            f"(timeout={effective_step_timeout_seconds}s, load_threads={effective_load_threads}, "
+            f"snapshot_threads={effective_snapshot_threads}, load_no_shuffle_primary={effective_load_no_shuffle_primary})"
+        )
+    print(f"Stream export enabled: {effective_stream_export}")
     if execution_mode == "local" and docker_note != "docker ready":
         print(f"Docker note: {docker_note}")
 
     keep_runtime = args.keep_runtime_dir or not runtime_created
     try:
-        run_command(e2e_cmd, mvp_root)
+        run_command(e2e_cmd, mvp_root, env_overrides=e2e_env if e2e_env else None)
 
         run_dir = find_new_run_dir(runtime_runs, args.run_name_prefix)
         run_summary_json = run_dir / "run_summary.json"

@@ -73,7 +73,7 @@ class DashboardFailureModesTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "input_source.json"
             path.write_text(json.dumps([{"name": "a"}, {"name": "b"}]), encoding="utf-8")
-            self.assertEqual(count_unique_source_ipg_groups(path), 0)
+            self.assertEqual(count_unique_source_ipg_groups(path), 2)
 
     def test_build_entity_size_distribution_missing_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

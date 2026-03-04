@@ -7,6 +7,7 @@ import argparse
 import csv
 import datetime as dt
 import json
+import functools
 from pathlib import Path
 from typing import Any
 
@@ -92,32 +93,42 @@ def count_csv_rows(path: Path) -> int | None:
         return sum(1 for _ in reader)
 
 
-def count_unique_resolved_entities(path: Path) -> int | None:
+@functools.lru_cache(maxsize=256)
+def load_entity_record_profile(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return None
-    values: set[str] = set()
-    with path.open("r", encoding="utf-8", newline="") as infile:
-        reader = csv.DictReader(infile)
-        for row in reader:
-            value = str(row.get("resolved_entity_id") or "").strip()
-            if value:
-                values.add(value)
-    return len(values)
-
-
-def count_entity_size_distribution_total(path: Path) -> int | None:
-    if not path.exists():
-        return None
-    values: dict[str, int] = {}
+        return {"records_total": None, "entities_total": None}
+    record_to_entity: dict[str, tuple[int, str]] = {}
     with path.open("r", encoding="utf-8", newline="") as infile:
         reader = csv.DictReader(infile)
         for row in reader:
             entity_id = str(row.get("resolved_entity_id") or "").strip()
-            if not entity_id:
+            data_source = str(row.get("data_source") or "").strip()
+            record_id = str(row.get("record_id") or "").strip()
+            match_level_raw = str(row.get("match_level") or "").strip()
+            try:
+                match_level = int(match_level_raw)
+            except ValueError:
+                match_level = 999999
+            if not entity_id or not record_id:
                 continue
-            values[entity_id] = values.get(entity_id, 0) + 1
-    # Number of entities represented by the distribution equals number of unique entity IDs.
-    return len(values)
+            record_key = f"{data_source}::{record_id}" if data_source else record_id
+            existing = record_to_entity.get(record_key)
+            if existing is None or match_level < existing[0]:
+                record_to_entity[record_key] = (match_level, entity_id)
+    if not record_to_entity:
+        return {"records_total": 0, "entities_total": 0}
+    entities = {entity_id for _, entity_id in record_to_entity.values()}
+    return {"records_total": len(record_to_entity), "entities_total": len(entities)}
+
+
+def count_unique_resolved_entities(path: Path) -> int | None:
+    profile = load_entity_record_profile(path)
+    value = profile.get("entities_total")
+    return value if isinstance(value, int) else None
+
+
+def count_entity_size_distribution_total(path: Path) -> int | None:
+    return count_unique_resolved_entities(path)
 
 
 def dashboard_distribution_total(distribution: Any) -> int | None:
@@ -179,8 +190,13 @@ def audit_run(run: dict[str, Any], output_root: Path, tolerance: float) -> dict[
     our_tp = discovery_metrics.get("known_pairs_ipg") if isinstance(discovery_metrics.get("known_pairs_ipg"), int) else None
     our_total = discovery_metrics.get("true_pairs_total") if isinstance(discovery_metrics.get("true_pairs_total"), int) else None
 
+    entity_profile = load_entity_record_profile(technical_dir / "entity_records.csv")
     recomputed = {
-        "records_input": count_jsonl_rows(technical_dir / "input_normalized.jsonl"),
+        "records_input": (
+            entity_profile.get("records_total")
+            if isinstance(entity_profile.get("records_total"), int)
+            else count_jsonl_rows(technical_dir / "input_normalized.jsonl")
+        ),
         "matched_pairs": count_csv_rows(technical_dir / "matched_pairs.csv"),
         "resolved_entities": count_unique_resolved_entities(technical_dir / "entity_records.csv"),
         "entity_size_distribution_total": count_entity_size_distribution_total(technical_dir / "entity_records.csv"),

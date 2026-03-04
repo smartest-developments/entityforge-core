@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import functools
 from pathlib import Path
 from typing import Any
 
@@ -104,61 +105,178 @@ def count_unique_csv_values(path: Path, column_name: str) -> int | None:
     return len(values)
 
 
-def build_entity_size_distribution(path: Path) -> dict[str, int]:
+@functools.lru_cache(maxsize=256)
+def load_entity_record_profile(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return {}
-    per_entity: dict[str, int] = {}
+        return {
+            "records_total": None,
+            "entities_total": None,
+            "grouped_members": None,
+            "entity_size_distribution": {},
+            "record_ids": set(),
+        }
+
+    record_to_entity: dict[str, tuple[int, str]] = {}
+    record_ids: set[str] = set()
     with path.open("r", encoding="utf-8", newline="") as infile:
         reader = csv.DictReader(infile)
         for row in reader:
             entity_id = str(row.get("resolved_entity_id") or "").strip()
-            if not entity_id:
+            data_source = str(row.get("data_source") or "").strip()
+            record_id = str(row.get("record_id") or "").strip()
+            match_level_raw = str(row.get("match_level") or "").strip()
+            try:
+                match_level = int(match_level_raw)
+            except ValueError:
+                match_level = 999999
+            if not entity_id or not record_id:
                 continue
-            per_entity[entity_id] = per_entity.get(entity_id, 0) + 1
+            record_key = f"{data_source}::{record_id}" if data_source else record_id
+            existing = record_to_entity.get(record_key)
+            if existing is None or match_level < existing[0]:
+                record_to_entity[record_key] = (match_level, entity_id)
+            record_ids.add(record_id)
+
+    if not record_to_entity:
+        return {
+            "records_total": 0,
+            "entities_total": 0,
+            "grouped_members": 0,
+            "entity_size_distribution": {},
+            "record_ids": set(),
+        }
+
+    per_entity: dict[str, int] = {}
+    for _, entity_id in record_to_entity.values():
+        per_entity[entity_id] = per_entity.get(entity_id, 0) + 1
 
     distribution: dict[int, int] = {}
+    grouped_members = 0
     for size in per_entity.values():
         distribution[size] = distribution.get(size, 0) + 1
-    return {str(key): value for key, value in sorted(distribution.items(), key=lambda item: item[0])}
+        if size > 1:
+            grouped_members += size
+
+    return {
+        "records_total": len(record_to_entity),
+        "entities_total": len(per_entity),
+        "grouped_members": grouped_members,
+        "entity_size_distribution": {str(key): value for key, value in sorted(distribution.items(), key=lambda item: item[0])},
+        "record_ids": record_ids,
+    }
 
 
-def count_unique_source_ipg_groups(input_source_json: Path) -> int | None:
+def build_entity_size_distribution(path: Path) -> dict[str, int]:
+    profile = load_entity_record_profile(path)
+    distribution = profile.get("entity_size_distribution")
+    return distribution if isinstance(distribution, dict) else {}
+
+
+def iter_input_source_records(input_source_json: Path):
     if not input_source_json.exists():
-        return None
+        return
+    if input_source_json.suffix.lower() == ".jsonl":
+        with input_source_json.open("r", encoding="utf-8") as infile:
+            for line in infile:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    record = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict):
+                    yield record
+        return
     try:
         payload = json.loads(input_source_json.read_text(encoding="utf-8"))
     except Exception:
-        return None
-
-    records: list[dict[str, Any]] = []
+        return
     if isinstance(payload, list):
-        records = [item for item in payload if isinstance(item, dict)]
-    elif isinstance(payload, dict):
+        for item in payload:
+            if isinstance(item, dict):
+                yield item
+        return
+    if isinstance(payload, dict):
         for key in ("records", "data", "items"):
             value = payload.get(key)
             if isinstance(value, list):
-                records = [item for item in value if isinstance(item, dict)]
-                break
+                for item in value:
+                    if isinstance(item, dict):
+                        yield item
+                return
 
-    if not records:
-        return None
 
-    groups: set[str] = set()
-    for record in records:
+def summarize_source_ipg_groups(input_source_json: Path, record_ids_filter: set[str] | None = None) -> dict[str, int | None]:
+    if not input_source_json.exists():
+        return {"records_total": None, "entities_total": None, "grouped_members": None, "entity_size_distribution": {}}
+
+    ipg_sizes: dict[str, int] = {}
+    records_total = 0
+    missing_ipg_singletons = 0
+    for index, record in enumerate(iter_input_source_records(input_source_json), start=1):
+        if record_ids_filter is not None and str(index) not in record_ids_filter:
+            continue
+        records_total += 1
+        found_ipg = False
         for key in IPG_ID_CANDIDATE_KEYS:
             raw_value = record.get(key)
             if raw_value is None:
                 continue
             text = str(raw_value).strip()
             if text:
-                groups.add(text)
+                ipg_sizes[text] = ipg_sizes.get(text, 0) + 1
+                found_ipg = True
                 break
-    return len(groups)
+        if not found_ipg:
+            missing_ipg_singletons += 1
+    if records_total == 0:
+        return {"records_total": 0, "entities_total": None, "grouped_members": None, "entity_size_distribution": {}}
+    grouped_members = sum(size for size in ipg_sizes.values() if size > 1)
+    size_distribution: dict[int, int] = {}
+    for size in ipg_sizes.values():
+        size_distribution[size] = size_distribution.get(size, 0) + 1
+    if missing_ipg_singletons > 0:
+        size_distribution[1] = size_distribution.get(1, 0) + missing_ipg_singletons
+    return {
+        "records_total": records_total,
+        "entities_total": len(ipg_sizes) + missing_ipg_singletons,
+        "grouped_members": grouped_members,
+        "entity_size_distribution": {str(k): v for k, v in sorted(size_distribution.items())},
+    }
+
+
+def count_unique_source_ipg_groups(input_source_json: Path) -> int | None:
+    return summarize_source_ipg_groups(input_source_json).get("entities_total")
+
+
+def find_input_source_file(run_dir: Path) -> Path:
+    json_path = run_dir / "input_source.json"
+    if json_path.exists():
+        return json_path
+    jsonl_path = run_dir / "input_source.jsonl"
+    if jsonl_path.exists():
+        return jsonl_path
+    return json_path
 
 
 def count_input_source_records(input_source_json: Path) -> int | None:
     if not input_source_json.exists():
         return None
+    if input_source_json.suffix.lower() == ".jsonl":
+        count = 0
+        with input_source_json.open("r", encoding="utf-8") as infile:
+            for line in infile:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    item = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(item, dict):
+                    count += 1
+        return count
     try:
         payload = json.loads(input_source_json.read_text(encoding="utf-8"))
     except Exception:
@@ -175,6 +293,15 @@ def count_input_source_records(input_source_json: Path) -> int | None:
     return None
 
 
+def summarize_resolved_entity_groups(entity_records_csv: Path) -> dict[str, int | None]:
+    profile = load_entity_record_profile(entity_records_csv)
+    return {
+        "records_total": profile.get("records_total"),
+        "entities_total": profile.get("entities_total"),
+        "grouped_members": profile.get("grouped_members"),
+    }
+
+
 def normalize_distribution(raw_distribution: Any) -> dict[str, int] | None:
     if not isinstance(raw_distribution, dict):
         return None
@@ -186,6 +313,25 @@ def normalize_distribution(raw_distribution: Any) -> dict[str, int] | None:
             return None
         normalized[key] = value
     return dict(sorted(normalized.items(), key=lambda item: int(item[0]) if item[0].isdigit() else item[0]))
+
+
+def compute_execution_minutes_from_run_summary(run_summary_json: Path) -> float | None:
+    payload = read_json(run_summary_json)
+    steps = payload.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return None
+    total_seconds = 0.0
+    found = False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        duration = step.get("duration_seconds")
+        if isinstance(duration, (int, float)):
+            total_seconds += float(duration)
+            found = True
+    if not found:
+        return None
+    return round(total_seconds / 60.0, 2)
 
 
 def compute_expected_run_metrics(run: dict[str, Any], output_root: Path) -> dict[str, Any]:
@@ -228,13 +374,44 @@ def compute_expected_run_metrics(run: dict[str, Any], output_root: Path) -> dict
     input_jsonl = technical_dir / "input_normalized.jsonl"
     matched_pairs_csv = technical_dir / "matched_pairs.csv"
     entity_records_csv = technical_dir / "entity_records.csv"
-    input_source_json = run_dir / "input_source.json"
+    input_source_json = find_input_source_file(run_dir)
+    entity_profile = load_entity_record_profile(entity_records_csv)
+    source_ipg_summary = summarize_source_ipg_groups(
+        input_source_json,
+        record_ids_filter=entity_profile.get("record_ids") if isinstance(entity_profile.get("record_ids"), set) else None,
+    )
+    their_entity_summary = summarize_resolved_entity_groups(entity_records_csv)
 
     entity_size_distribution = build_entity_size_distribution(entity_records_csv)
+    our_entity_size_distribution = source_ipg_summary.get("entity_size_distribution")
 
     extra_true = as_int(discovery.get("extra_true_matches_found"))
     extra_false = as_int(discovery.get("extra_false_matches_found"))
     extra_gain_ratio = as_float(discovery.get("extra_gain_vs_known"))
+
+    records_input = (
+        entity_profile.get("records_total")
+        or source_ipg_summary.get("records_total")
+        or count_non_empty_jsonl(input_jsonl)
+        or count_input_source_records(input_source_json)
+    )
+    our_entities_formed = source_ipg_summary.get("entities_total")
+    their_entities_formed = entity_profile.get("entities_total")
+    our_grouped_members = source_ipg_summary.get("grouped_members")
+    their_grouped_members = their_entity_summary.get("grouped_members")
+
+    our_match_pct = to_pct_from_counts(our_grouped_members, records_input)
+    their_match_pct = to_pct_from_counts(their_grouped_members, records_input)
+    match_members_delta = (
+        our_grouped_members - their_grouped_members
+        if isinstance(our_grouped_members, int) and isinstance(their_grouped_members, int)
+        else None
+    )
+    entity_delta = (
+        our_entities_formed - their_entities_formed
+        if isinstance(our_entities_formed, int) and isinstance(their_entities_formed, int)
+        else None
+    )
 
     return {
         "paths": {
@@ -249,10 +426,27 @@ def compute_expected_run_metrics(run: dict[str, Any], output_root: Path) -> dict
             "run_summary_json": technical_dir / "run_summary.json",
         },
         "from_files": {
-            "records_input": count_non_empty_jsonl(input_jsonl) or count_input_source_records(input_source_json),
+            "records_input": records_input,
             "matched_pairs": count_csv_rows(matched_pairs_csv),
             "resolved_entities": count_unique_csv_values(entity_records_csv, "resolved_entity_id"),
             "our_resolved_entities": count_unique_source_ipg_groups(input_source_json),
+            "our_entities_formed": our_entities_formed,
+            "their_entities_formed": their_entities_formed,
+            "our_grouped_members": our_grouped_members,
+            "their_grouped_members": their_grouped_members,
+            "our_match_pct": our_match_pct,
+            "their_match_pct": their_match_pct,
+            "our_match_gain_loss_pct": to_pct_from_counts(match_members_delta, records_input),
+            "their_match_gain_loss_pct": to_pct_from_counts(
+                -match_members_delta if isinstance(match_members_delta, int) else None,
+                records_input,
+            ),
+            "our_entity_gain_loss_pct": to_pct_from_counts(entity_delta, records_input),
+            "their_entity_gain_loss_pct": to_pct_from_counts(
+                -entity_delta if isinstance(entity_delta, int) else None,
+                records_input,
+            ),
+            "our_entity_size_distribution": normalize_distribution(our_entity_size_distribution),
             "entity_size_distribution": entity_size_distribution,
         },
         "from_ground_truth": {
@@ -288,6 +482,9 @@ def compute_expected_run_metrics(run: dict[str, Any], output_root: Path) -> dict
             "extra_gain_vs_known_pct": to_pct_from_ratio(extra_gain_ratio)
             if extra_gain_ratio is not None
             else to_pct_from_counts(extra_true, known_pairs_ipg),
+        },
+        "from_runtime": {
+            "execution_minutes": compute_execution_minutes_from_run_summary(technical_dir / "run_summary.json"),
         },
     }
 

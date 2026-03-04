@@ -36,7 +36,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 CANONICAL_FIELDS: dict[str, list[str]] = {
@@ -517,8 +517,23 @@ def convert_record(
     return output_record, None
 
 
-def parse_input_records(input_path: Path, array_key: str | None) -> list[dict[str, Any]]:
-    """Load and validate input records."""
+def iter_input_records(input_path: Path, array_key: str | None) -> Iterator[dict[str, Any]]:
+    """Yield validated input records from JSON array/object or JSONL source."""
+    if input_path.suffix.lower() == ".jsonl":
+        with input_path.open("r", encoding="utf-8") as infile:
+            for line_no, line in enumerate(infile, start=1):
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    item = json.loads(text)
+                except json.JSONDecodeError as err:
+                    raise ValueError(f"Line {line_no} is not valid JSON: {err}") from err
+                if not isinstance(item, dict):
+                    raise ValueError(f"Line {line_no} is not a JSON object.")
+                yield item
+        return
+
     with input_path.open("r", encoding="utf-8") as infile:
         raw_data = json.load(infile)
 
@@ -528,16 +543,13 @@ def parse_input_records(input_path: Path, array_key: str | None) -> list[dict[st
         records = raw_data[array_key]
     else:
         raise ValueError(
-            "Input must be a JSON array, or a JSON object containing an array at --array-key."
+            "Input must be a JSON array/JSONL, or a JSON object containing an array at --array-key."
         )
 
-    validated: list[dict[str, Any]] = []
     for index, item in enumerate(records, start=1):
         if not isinstance(item, dict):
             raise ValueError(f"Record {index} is not a JSON object.")
-        validated.append(item)
-
-    return validated
+        yield item
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -545,7 +557,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Map partner JSON records into Senzing-ready JSONL."
     )
-    parser.add_argument("input_json", help="Input JSON file path")
+    parser.add_argument("input_json", help="Input JSON/JSONL file path")
     parser.add_argument(
         "output_jsonl",
         nargs="?",
@@ -650,16 +662,19 @@ def main() -> int:
         return 2
 
     try:
-        records = parse_input_records(input_path, args.array_key)
+        sample_records: list[dict[str, Any]] = []
+        for record in iter_input_records(input_path, args.array_key):
+            sample_records.append(record)
+            if len(sample_records) >= args.scan_records:
+                break
     except Exception as err:  # pylint: disable=broad-exception-caught
-        print(f"ERROR: Unable to parse input JSON: {err}", file=sys.stderr)
+        print(f"ERROR: Unable to parse input: {err}", file=sys.stderr)
         return 2
 
-    if not records:
-        print("ERROR: Input JSON contains no records.", file=sys.stderr)
+    if not sample_records:
+        print("ERROR: Input contains no records.", file=sys.stderr)
         return 2
 
-    sample_records = records[: args.scan_records]
     field_map = infer_field_map(sample_records, args.fuzzy_cutoff)
 
     print("Inferred field map:")
@@ -690,10 +705,12 @@ def main() -> int:
 
     converted = 0
     skipped = 0
+    records_input = 0
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as outfile:
-        for index, record in enumerate(records, start=1):
+        for index, record in enumerate(iter_input_records(input_path, args.array_key), start=1):
+            records_input += 1
             output_record, error = convert_record(record, field_map, args, index)
             if error:
                 message = f"Record {index}: {error}"
@@ -723,7 +740,7 @@ def main() -> int:
             "output_jsonl": str(output_path),
             "field_map_file": args.write_field_map,
             "data_source": args.data_source,
-            "records_input": len(records),
+            "records_input": records_input,
             "records_converted": converted,
             "records_skipped": skipped,
             "unresolved_canonical_fields": unresolved,
@@ -733,7 +750,7 @@ def main() -> int:
         run_info_path.write_text(json.dumps(run_info, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     print("\nConversion complete.")
-    print(f"  - Input records: {len(records)}")
+    print(f"  - Input records: {records_input}")
     print(f"  - Converted: {converted}")
     print(f"  - Skipped: {skipped}")
     print(f"  - Output JSONL: {output_path}")

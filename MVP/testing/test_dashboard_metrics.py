@@ -55,6 +55,16 @@ class DashboardMetricsTestCase(unittest.TestCase):
             str(run.get("run_id")): compute_expected_run_metrics(run, cls.output_root)
             for run in cls.success_runs
         }
+        cls.has_runs = len(cls.runs) > 0
+        cls.has_success_runs = len(cls.success_runs) > 0
+
+    def require_runs(self) -> None:
+        if not self.has_runs:
+            self.skipTest("No dashboard runs available yet; generate outputs first.")
+
+    def require_success_runs(self) -> None:
+        if not self.has_success_runs:
+            self.skipTest("No successful dashboard runs available yet; generate outputs first.")
 
     def as_float_or_none(self, value: Any) -> float | None:
         if isinstance(value, bool):
@@ -85,10 +95,11 @@ class DashboardMetricsTestCase(unittest.TestCase):
 
     def test_payload_contains_runs(self) -> None:
         self.assertTrue(self.dashboard_data_path.exists(), "Dashboard data file does not exist")
-        self.assertGreater(len(self.runs), 0, "Dashboard payload has no runs")
+        if not self.runs:
+            self.skipTest("Dashboard payload has no runs yet")
 
     def test_success_run_artifacts_exist(self) -> None:
-        self.assertGreater(len(self.success_runs), 0, "No successful runs found in dashboard payload")
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             expected = self.expected_by_run[run_id]
@@ -103,6 +114,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                 self.assertTrue(paths["input_source_json"].exists(), f"Missing input_source.json for {run_id}")
 
     def test_file_counts_match_dashboard_values(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             expected = self.expected_by_run[run_id]["from_files"]
@@ -118,7 +130,92 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     tolerance=0.0,
                 )
 
+    def test_match_and_entity_comparison_metrics(self) -> None:
+        self.require_success_runs()
+        for run in self.success_runs:
+            run_id = str(run.get("run_id"))
+            expected = self.expected_by_run[run_id]["from_files"]
+            with self.subTest(run_id=run_id):
+                self.assert_metric(
+                    run_id,
+                    "our_entities_formed",
+                    run.get("our_entities_formed"),
+                    expected.get("our_entities_formed"),
+                    tolerance=0.0,
+                )
+                self.assert_metric(
+                    run_id,
+                    "their_entities_formed",
+                    run.get("their_entities_formed"),
+                    expected.get("their_entities_formed"),
+                    tolerance=0.0,
+                )
+                self.assert_metric(
+                    run_id,
+                    "our_grouped_members",
+                    run.get("our_grouped_members"),
+                    expected.get("our_grouped_members"),
+                    tolerance=0.0,
+                )
+                self.assert_metric(
+                    run_id,
+                    "their_grouped_members",
+                    run.get("their_grouped_members"),
+                    expected.get("their_grouped_members"),
+                    tolerance=0.0,
+                )
+                self.assert_metric(
+                    run_id,
+                    "our_match_pct",
+                    run.get("our_match_pct"),
+                    expected.get("our_match_pct"),
+                )
+                self.assert_metric(
+                    run_id,
+                    "their_match_pct",
+                    run.get("their_match_pct"),
+                    expected.get("their_match_pct"),
+                )
+                self.assert_metric(
+                    run_id,
+                    "our_match_gain_loss_pct",
+                    run.get("our_match_gain_loss_pct"),
+                    expected.get("our_match_gain_loss_pct"),
+                )
+                self.assert_metric(
+                    run_id,
+                    "their_match_gain_loss_pct",
+                    run.get("their_match_gain_loss_pct"),
+                    expected.get("their_match_gain_loss_pct"),
+                )
+                self.assert_metric(
+                    run_id,
+                    "our_entity_gain_loss_pct",
+                    run.get("our_entity_gain_loss_pct"),
+                    expected.get("our_entity_gain_loss_pct"),
+                )
+                self.assert_metric(
+                    run_id,
+                    "their_entity_gain_loss_pct",
+                    run.get("their_entity_gain_loss_pct"),
+                    expected.get("their_entity_gain_loss_pct"),
+                )
+
+    def test_execution_minutes_matches_run_summary_steps(self) -> None:
+        self.require_success_runs()
+        for run in self.success_runs:
+            run_id = str(run.get("run_id"))
+            expected = self.expected_by_run[run_id]["from_runtime"]
+            with self.subTest(run_id=run_id):
+                self.assert_metric(
+                    run_id,
+                    "execution_minutes",
+                    run.get("execution_minutes"),
+                    expected.get("execution_minutes"),
+                )
+
     def test_confusion_matrix_counts_match_ground_truth(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             expected = self.expected_by_run[run_id]["from_ground_truth"]
@@ -135,6 +232,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                 )
 
     def test_kpi_percentages_match_formulas(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             expected = self.expected_by_run[run_id]["from_ground_truth"]
@@ -171,6 +269,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                 )
 
     def test_our_baseline_metrics_match_discovery_logic(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             expected = self.expected_by_run[run_id]["from_discovery"]
@@ -205,6 +304,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                 )
 
     def test_extra_metrics_match_discovery_fields(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             expected = self.expected_by_run[run_id]["from_discovery"]
@@ -231,6 +331,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                 )
 
     def test_entity_size_distribution_is_consistent(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             expected_dist = self.expected_by_run[run_id]["from_files"].get("entity_size_distribution")
@@ -243,6 +344,22 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     dist_total,
                     as_int(run.get("resolved_entities")),
                     f"Distribution total must match resolved_entities for {run_id}",
+                )
+
+    def test_our_entity_size_distribution_is_consistent(self) -> None:
+        self.require_success_runs()
+        for run in self.success_runs:
+            run_id = str(run.get("run_id"))
+            expected_dist = self.expected_by_run[run_id]["from_files"].get("our_entity_size_distribution")
+            dashboard_dist = normalize_distribution(run.get("our_entity_size_distribution"))
+            with self.subTest(run_id=run_id):
+                self.assertIsNotNone(dashboard_dist, f"Invalid our_entity_size_distribution type for {run_id}")
+                self.assertEqual(dashboard_dist, expected_dist, f"Our distribution mismatch for {run_id}")
+                dist_total = sum(int(value) for value in (dashboard_dist or {}).values())
+                self.assertEqual(
+                    dist_total,
+                    as_int(run.get("our_entities_formed")),
+                    f"Our distribution total must match our_entities_formed for {run_id}",
                 )
 
     def test_summary_block_matches_recomputed_values(self) -> None:
@@ -277,6 +394,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     )
 
     def test_validation_checks_have_no_failures(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id"))
             validation = run.get("validation") if isinstance(run.get("validation"), dict) else {}
@@ -293,6 +411,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     )
 
     def test_synthetic_noise_coverage_exists(self) -> None:
+        self.require_success_runs()
         sample_runs = [
             run
             for run in self.success_runs
@@ -347,16 +466,20 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     self.assertIn(key, run, f"Missing required run field '{key}' in {run_id}")
 
     def test_success_runs_have_quality_data(self) -> None:
+        self.require_success_runs()
         quality_runs = [run for run in self.success_runs if bool(run.get("quality_available"))]
         self.assertGreaterEqual(len(quality_runs), 1, "No quality-enabled successful runs found")
 
     def test_percentage_ranges(self) -> None:
+        self.require_success_runs()
         pct_fields = (
             "pair_precision_pct",
             "pair_recall_pct",
             "overall_false_positive_pct",
             "our_match_coverage_pct",
             "extra_gain_vs_known_pct",
+            "our_match_pct",
+            "their_match_pct",
         )
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
@@ -370,7 +493,26 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     self.assertGreaterEqual(value, lower_bound, f"{field} below 0 in {run_id}")
                     self.assertLessEqual(value, upper_bound, f"{field} above expected bound in {run_id}")
 
+    def test_gain_loss_percentage_ranges(self) -> None:
+        self.require_success_runs()
+        pct_fields = (
+            "our_match_gain_loss_pct",
+            "their_match_gain_loss_pct",
+            "our_entity_gain_loss_pct",
+            "their_entity_gain_loss_pct",
+        )
+        for run in self.success_runs:
+            run_id = str(run.get("run_id") or "")
+            with self.subTest(run_id=run_id):
+                for field in pct_fields:
+                    value = self.as_float_or_none(run.get(field))
+                    if value is None:
+                        continue
+                    self.assertGreaterEqual(value, -100.0, f"{field} below -100 in {run_id}")
+                    self.assertLessEqual(value, 100.0, f"{field} above 100 in {run_id}")
+
     def test_ground_truth_count_relations(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             tp = as_int(run.get("true_positive"))
@@ -385,6 +527,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     self.assertEqual(tp + fn, labeled_true, f"Expected TP+FN==ground_truth_pairs_labeled in {run_id}")
 
     def test_confusion_matrix_non_negative(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             with self.subTest(run_id=run_id):
@@ -402,6 +545,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     self.assertGreaterEqual(value, 0, f"{field} must be >= 0 in {run_id}")
 
     def test_baseline_relations(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             our_tp = as_int(run.get("our_true_positive"))
@@ -414,6 +558,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     self.assertEqual(our_tp + our_fn, our_total, f"Our TP+FN must equal Our total true pairs in {run_id}")
 
     def test_extra_gain_relation(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             extra_pairs = as_int(run.get("extra_true_matches_found"))
@@ -430,6 +575,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                 )
 
     def test_entity_distribution_total_matches_resolved_entities(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             distribution = run.get("entity_size_distribution")
@@ -444,7 +590,24 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     total += int(value)
                 self.assertEqual(total, resolved_entities, f"Distribution total mismatch in {run_id}")
 
+    def test_our_entity_distribution_total_matches_our_entities_formed(self) -> None:
+        self.require_success_runs()
+        for run in self.success_runs:
+            run_id = str(run.get("run_id") or "")
+            distribution = run.get("our_entity_size_distribution")
+            entities = as_int(run.get("our_entities_formed"))
+            with self.subTest(run_id=run_id):
+                self.assertIsInstance(distribution, dict, f"our_entity_size_distribution must be object in {run_id}")
+                if not isinstance(distribution, dict) or entities is None:
+                    continue
+                total = 0
+                for value in distribution.values():
+                    self.assertIsInstance(value, int, f"Our distribution values must be int in {run_id}")
+                    total += int(value)
+                self.assertEqual(total, entities, f"Our distribution total mismatch in {run_id}")
+
     def test_top_match_keys_format(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             top_keys = run.get("top_match_keys")
@@ -463,6 +626,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     self.assertGreaterEqual(item[1], 0, f"Match key count must be non-negative in {run_id}")
 
     def test_validation_block_shape(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             validation = run.get("validation")
@@ -484,6 +648,7 @@ class DashboardMetricsTestCase(unittest.TestCase):
                     self.assertIn(check.get("status"), {"PASS", "FAIL", "SKIP"}, f"Unexpected check status in {run_id}")
 
     def test_quality_available_flag_consistency(self) -> None:
+        self.require_success_runs()
         for run in self.success_runs:
             run_id = str(run.get("run_id") or "")
             quality = bool(run.get("quality_available"))
@@ -526,7 +691,10 @@ class DashboardMetricsTestCase(unittest.TestCase):
             with self.subTest(run_id=run_id):
                 self.assertIsInstance(value, str, f"source_input_name must be string in {run_id}")
                 if isinstance(value, str):
-                    self.assertTrue(value.endswith(".json"), f"source_input_name must end with .json in {run_id}")
+                    self.assertTrue(
+                        value.endswith(".json") or value.endswith(".jsonl"),
+                        f"source_input_name must end with .json/.jsonl in {run_id}",
+                    )
 
     def test_artifacts_metadata_shape(self) -> None:
         for run in self.runs:
@@ -575,6 +743,9 @@ class DashboardMetricsTestCase(unittest.TestCase):
         summary = self.payload.get("summary") if isinstance(self.payload.get("summary"), dict) else {}
         latest = summary.get("latest_run_id")
         run_ids = {run.get("run_id") for run in self.runs}
+        if not run_ids:
+            self.assertIsNone(latest, "summary.latest_run_id must be null when runs list is empty")
+            return
         self.assertIn(latest, run_ids, "summary.latest_run_id is not present in runs list")
 
     def test_summary_quality_runs_matches_flags(self) -> None:

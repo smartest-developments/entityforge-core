@@ -21,6 +21,7 @@ from collections import Counter, defaultdict
 import ctypes
 import csv
 import datetime as dt
+import itertools
 import json
 import os
 import shlex
@@ -29,6 +30,8 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+
+LICENSE_STRING_ENV = "SENZING_LICENSE_STRING_BASE64"
 
 
 def now_timestamp() -> str:
@@ -96,6 +99,15 @@ def parse_csv_items(value: str | None) -> list[str]:
         seen.add(token)
         items.append(token)
     return items
+
+
+def read_license_string_file(path: Path) -> str | None:
+    """Read and normalize base64 license content from file."""
+    if not path.exists() or not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    compact = "".join(text.split())
+    return compact if compact else None
 
 
 def count_non_empty_lines(path: Path) -> int:
@@ -173,8 +185,12 @@ def run_shell_step(
     shell_command: str,
     log_path: Path,
     timeout_seconds: int | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run one shell command and store stdout/stderr into log file."""
+    env = os.environ.copy()
+    if env_overrides:
+        env.update(env_overrides)
     start = time.time()
     timed_out = False
     try:
@@ -186,6 +202,7 @@ def run_shell_step(
             errors="replace",
             check=False,
             timeout=timeout_seconds,
+            env=env,
         )
         exit_code = result.returncode
         stdout_text = result.stdout or ""
@@ -231,16 +248,32 @@ def run_shell_step(
     }
 
 
+def build_shell_prefix(
+    project_setup_env: Path,
+    engine_config_json: str | None = None,
+    license_string: str | None = None,
+) -> str:
+    """Build shell prefix that sources setupEnv and applies optional runtime overrides."""
+    parts = [f"source {shlex.quote(str(project_setup_env))} >/dev/null 2>&1"]
+    if engine_config_json:
+        parts.append(f"export SENZING_ENGINE_CONFIGURATION_JSON={shlex.quote(engine_config_json)}")
+    if license_string:
+        parts.append(f"export {LICENSE_STRING_ENV}={shlex.quote(license_string)}")
+    return " && ".join(parts) + " && "
+
+
 def build_load_command(
     project_setup_env: Path,
     input_jsonl: Path,
     num_threads: int,
     no_shuffle: bool = False,
+    engine_config_json: str | None = None,
+    license_string: str | None = None,
 ) -> str:
     """Build sz_file_loader shell command."""
     cmd = (
-        f"source {shlex.quote(str(project_setup_env))} >/dev/null 2>&1 && "
-        f"sz_file_loader -f {shlex.quote(str(input_jsonl))}"
+        build_shell_prefix(project_setup_env, engine_config_json=engine_config_json, license_string=license_string)
+        + f"sz_file_loader -f {shlex.quote(str(input_jsonl))}"
     )
     if num_threads > 0:
         cmd += f" -nt {num_threads}"
@@ -254,11 +287,13 @@ def build_snapshot_command(
     snapshot_prefix: Path,
     thread_count: int,
     force_sdk: bool = False,
+    engine_config_json: str | None = None,
+    license_string: str | None = None,
 ) -> str:
     """Build sz_snapshot shell command."""
     cmd = (
-        f"source {shlex.quote(str(project_setup_env))} >/dev/null 2>&1 && "
-        f"sz_snapshot -o {shlex.quote(str(snapshot_prefix))} -Q"
+        build_shell_prefix(project_setup_env, engine_config_json=engine_config_json, license_string=license_string)
+        + f"sz_snapshot -o {shlex.quote(str(snapshot_prefix))} -Q"
     )
     if thread_count > 0:
         cmd += f" -t {thread_count}"
@@ -267,7 +302,23 @@ def build_snapshot_command(
     return cmd
 
 
-def load_setup_env(project_setup_env: Path) -> dict[str, str]:
+def merge_license_into_engine_config(config_json: str, license_string: str) -> str:
+    """Merge LICENSESTRINGBASE64 into engine configuration JSON."""
+    try:
+        payload = json.loads(config_json)
+    except Exception:
+        return config_json
+    if not isinstance(payload, dict):
+        return config_json
+    pipeline = payload.get("PIPELINE")
+    if not isinstance(pipeline, dict):
+        pipeline = {}
+        payload["PIPELINE"] = pipeline
+    pipeline["LICENSESTRINGBASE64"] = license_string
+    return json.dumps(payload, separators=(",", ":"))
+
+
+def load_setup_env(project_setup_env: Path, license_string: str | None = None) -> dict[str, str]:
     """Load environment variables by sourcing setupEnv in a subshell."""
     cmd = f"source {shlex.quote(str(project_setup_env))} >/dev/null 2>&1 && env -0"
     result = subprocess.run(
@@ -285,6 +336,13 @@ def load_setup_env(project_setup_env: Path) -> dict[str, str]:
             continue
         key, value = item.split(b"=", 1)
         env_map[key.decode("utf-8", errors="replace")] = value.decode("utf-8", errors="replace")
+
+    if license_string:
+        existing = env_map.get("SENZING_ENGINE_CONFIGURATION_JSON", "").strip()
+        if not existing:
+            existing = build_engine_config_json(project_setup_env.parent)
+        env_map["SENZING_ENGINE_CONFIGURATION_JSON"] = merge_license_into_engine_config(existing, license_string)
+        env_map[LICENSE_STRING_ENV] = license_string
     return env_map
 
 
@@ -385,7 +443,10 @@ def init_g2_engine(project_dir: Path, project_setup_env: Path) -> tuple[Any | No
         "error": None,
     }
 
-    loaded_env = load_setup_env(project_setup_env)
+    loaded_env = load_setup_env(
+        project_setup_env,
+        license_string=os.environ.get(LICENSE_STRING_ENV, "").strip() or None,
+    )
     if loaded_env:
         os.environ.update(loaded_env)
         py_path = loaded_env.get("PYTHONPATH", "")
@@ -705,6 +766,14 @@ def parse_args() -> argparse.Namespace:
         help="Export filename inside run directory (default: entity_export.csv)",
     )
     parser.add_argument(
+        "--stream-export",
+        action="store_true",
+        help=(
+            "Stream sz_export output directly into comparison artifacts (no large export CSV on disk). "
+            "Requires --skip-explain and comparison enabled."
+        ),
+    )
+    parser.add_argument(
         "--step-timeout-seconds",
         type=int,
         default=1800,
@@ -721,6 +790,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1,
         help="Worker threads for sz_file_loader fallback attempt (default: 1)",
+    )
+    parser.add_argument(
+        "--load-no-shuffle-primary",
+        action="store_true",
+        help="Disable shuffle on primary sz_file_loader attempt (reduces temp disk pressure on large loads).",
     )
     parser.add_argument(
         "--snapshot-threads",
@@ -743,6 +817,11 @@ def parse_args() -> argparse.Namespace:
         "--keep-loader-temp-files",
         action="store_true",
         help="Keep temporary shuffled files created by sz_file_loader",
+    )
+    parser.add_argument(
+        "--license-base64-file",
+        default=None,
+        help="Optional path to file containing LICENSESTRINGBASE64. Overrides env SENZING_LICENSE_STRING_BASE64.",
     )
     return parser.parse_args()
 
@@ -776,16 +855,22 @@ def parse_export_rows(export_file: Path) -> list[dict[str, str]]:
         reader = csv.DictReader(infile, dialect=dialect)
         rows: list[dict[str, str]] = []
         for row in reader:
-            normalized: dict[str, str] = {}
-            for key, value in row.items():
-                if key is None:
-                    continue
-                norm_key = key.strip().strip('"').strip().upper()
-                norm_value = (value or "").strip().strip('"').strip()
-                normalized[norm_key] = norm_value
+            normalized = normalize_export_row(row)
             if normalized:
                 rows.append(normalized)
     return rows
+
+
+def normalize_export_row(row: dict[str, Any]) -> dict[str, str]:
+    """Normalize sz_export row keys and values."""
+    normalized: dict[str, str] = {}
+    for key, value in row.items():
+        if key is None:
+            continue
+        norm_key = str(key).strip().strip('"').strip().upper()
+        norm_value = str(value or "").strip().strip('"').strip()
+        normalized[norm_key] = norm_value
+    return normalized
 
 
 def build_match_inputs(export_rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
@@ -997,21 +1082,13 @@ def load_source_ipg_labels(input_jsonl_path: Path) -> dict[str, Any]:
     }
 
 
-def build_ground_truth_match_quality(
+def build_ground_truth_match_quality_from_record_to_entity(
     input_jsonl_path: Path,
-    entity_rows: list[dict[str, Any]],
+    record_to_entity: dict[tuple[str, str], str],
 ) -> dict[str, Any]:
     """Compute match quality metrics against SOURCE_IPG_ID ground truth."""
     source_info = load_source_ipg_labels(input_jsonl_path)
     labels: dict[tuple[str, str], str] = source_info["labels"]
-
-    record_to_entity: dict[tuple[str, str], str] = {}
-    for row in entity_rows:
-        key = parse_record_key(row.get("data_source"), row.get("record_id"))
-        entity_id = str(row.get("resolved_entity_id") or "").strip()
-        if key is None or not entity_id:
-            continue
-        record_to_entity[key] = entity_id
 
     ipg_counts: Counter[str] = Counter()
     entity_ipg_counts: dict[str, Counter[str]] = defaultdict(Counter)
@@ -1072,6 +1149,44 @@ def build_ground_truth_match_quality(
             "record_pairing_degree_distribution": {str(k): v for k, v in sorted(record_pairing_degree_distribution.items())},
         },
     }
+
+
+def build_ground_truth_match_quality(
+    input_jsonl_path: Path,
+    entity_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compute match quality metrics against SOURCE_IPG_ID ground truth."""
+    record_to_entity: dict[tuple[str, str], str] = {}
+    for row in entity_rows:
+        key = parse_record_key(row.get("data_source"), row.get("record_id"))
+        entity_id = str(row.get("resolved_entity_id") or "").strip()
+        if key is None or not entity_id:
+            continue
+        record_to_entity[key] = entity_id
+    return build_ground_truth_match_quality_from_record_to_entity(
+        input_jsonl_path=input_jsonl_path,
+        record_to_entity=record_to_entity,
+    )
+
+
+def build_ground_truth_match_quality_from_entity_csv(
+    input_jsonl_path: Path,
+    entity_records_csv: Path,
+) -> dict[str, Any]:
+    """Compute ground truth metrics by reading entity_records CSV incrementally."""
+    record_to_entity: dict[tuple[str, str], str] = {}
+    if entity_records_csv.exists():
+        with entity_records_csv.open("r", encoding="utf-8", newline="") as infile:
+            for row in csv.DictReader(infile):
+                key = parse_record_key(row.get("data_source"), row.get("record_id"))
+                entity_id = str(row.get("resolved_entity_id") or "").strip()
+                if key is None or not entity_id:
+                    continue
+                record_to_entity[key] = entity_id
+    return build_ground_truth_match_quality_from_record_to_entity(
+        input_jsonl_path=input_jsonl_path,
+        record_to_entity=record_to_entity,
+    )
 
 
 def write_ground_truth_match_quality_reports(
@@ -1511,6 +1626,351 @@ def make_comparison_outputs(
     }
 
 
+def stream_export_to_comparison_outputs(
+    run_dir: Path,
+    logs_dir: Path,
+    project_setup_env: Path,
+    input_jsonl_path: Path,
+    records_input_count: int,
+    timeout_seconds: int | None,
+    engine_config_json: str | None = None,
+    license_string: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Stream sz_export directly into comparison artifacts, avoiding large export CSV files."""
+    comparison_dir = run_dir / "comparison"
+    comparison_dir.mkdir(parents=True, exist_ok=True)
+    entity_records_csv = comparison_dir / "entity_records.csv"
+    matched_pairs_csv = comparison_dir / "matched_pairs.csv"
+    match_stats_csv = comparison_dir / "match_key_stats.csv"
+    management_json = comparison_dir / "management_summary.json"
+    management_md = comparison_dir / "management_summary.md"
+    export_log_path = logs_dir / "04_export.log"
+
+    export_cmd = (
+        build_shell_prefix(
+            project_setup_env,
+            engine_config_json=engine_config_json,
+            license_string=license_string,
+        )
+        + "sz_export -o /dev/stdout"
+    )
+
+    started = time.time()
+    process = subprocess.Popen(  # pylint: disable=consider-using-with
+        ["bash", "-lc", export_cmd],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+    records_exported = 0
+    resolved_entities = 0
+    matched_records = 0
+    matched_pairs = 0
+    match_key_counts: Counter[str] = Counter()
+    match_level_counts: Counter[int] = Counter()
+    first_record_by_entity: dict[str, tuple[str, str]] = {}
+    anchor_by_entity: dict[str, tuple[str, str]] = {}
+
+    timed_out = False
+    parse_error: str | None = None
+    stderr_text = ""
+
+    try:
+        if process.stdout is None:
+            raise RuntimeError("sz_export stdout stream is not available.")
+
+        sample_lines: list[str] = []
+        sample_bytes = 0
+        while len(sample_lines) < 32 and sample_bytes < 16384:
+            line = process.stdout.readline()
+            if line == "":
+                break
+            sample_lines.append(line)
+            sample_bytes += len(line)
+            if len(sample_lines) >= 2 and sample_bytes >= 2048:
+                break
+            if timeout_seconds is not None and (time.time() - started) > timeout_seconds:
+                timed_out = True
+                break
+
+        if not timed_out and not sample_lines:
+            parse_error = "sz_export produced no output rows."
+        else:
+            sniff_sample = "".join(sample_lines)
+            try:
+                dialect = csv.Sniffer().sniff(sniff_sample, delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
+
+            line_iter = itertools.chain(sample_lines, process.stdout)
+            reader = csv.DictReader(line_iter, dialect=dialect)
+            with entity_records_csv.open("w", encoding="utf-8", newline="") as entity_out, matched_pairs_csv.open(
+                "w", encoding="utf-8", newline=""
+            ) as pairs_out:
+                entity_writer = csv.DictWriter(
+                    entity_out,
+                    fieldnames=[
+                        "resolved_entity_id",
+                        "data_source",
+                        "record_id",
+                        "match_level",
+                        "match_key",
+                        "is_anchor",
+                        "why_entity_ok",
+                        "why_entity_reason_summary",
+                    ],
+                )
+                pair_writer = csv.DictWriter(
+                    pairs_out,
+                    fieldnames=[
+                        "resolved_entity_id",
+                        "anchor_data_source",
+                        "anchor_record_id",
+                        "matched_data_source",
+                        "matched_record_id",
+                        "match_level",
+                        "match_key",
+                        "why_records_ok",
+                        "why_records_reason_summary",
+                    ],
+                )
+                entity_writer.writeheader()
+                pair_writer.writeheader()
+
+                for raw_row in reader:
+                    if timeout_seconds is not None and (time.time() - started) > timeout_seconds:
+                        timed_out = True
+                        break
+                    row = normalize_export_row(raw_row)
+                    if not row:
+                        continue
+                    entity_id = row.get("RESOLVED_ENTITY_ID", "")
+                    data_source = row.get("DATA_SOURCE", "")
+                    record_id = row.get("RECORD_ID", "")
+                    match_level = parse_int(row.get("MATCH_LEVEL", "0"), fallback=0)
+                    match_key = row.get("MATCH_KEY", "")
+
+                    if not entity_id or not data_source or not record_id:
+                        continue
+
+                    records_exported += 1
+                    if entity_id not in first_record_by_entity:
+                        first_record_by_entity[entity_id] = (data_source, record_id)
+                        resolved_entities += 1
+                    if match_level == 0 and entity_id not in anchor_by_entity:
+                        anchor_by_entity[entity_id] = (data_source, record_id)
+
+                    entity_writer.writerow(
+                        {
+                            "resolved_entity_id": entity_id,
+                            "data_source": data_source,
+                            "record_id": record_id,
+                            "match_level": match_level,
+                            "match_key": match_key,
+                            "is_anchor": 1 if match_level == 0 else 0,
+                            "why_entity_ok": 0,
+                            "why_entity_reason_summary": "",
+                        }
+                    )
+
+                    if match_level <= 0:
+                        continue
+
+                    matched_records += 1
+                    anchor = anchor_by_entity.get(entity_id) or first_record_by_entity.get(entity_id)
+                    if not anchor:
+                        continue
+                    anchor_ds, anchor_rid = anchor
+                    if anchor_ds == data_source and anchor_rid == record_id:
+                        continue
+
+                    matched_pairs += 1
+                    pair_writer.writerow(
+                        {
+                            "resolved_entity_id": entity_id,
+                            "anchor_data_source": anchor_ds,
+                            "anchor_record_id": anchor_rid,
+                            "matched_data_source": data_source,
+                            "matched_record_id": record_id,
+                            "match_level": match_level,
+                            "match_key": match_key,
+                            "why_records_ok": 0,
+                            "why_records_reason_summary": "",
+                        }
+                    )
+                    if match_key:
+                        match_key_counts[match_key] += 1
+                    match_level_counts[match_level] += 1
+    finally:
+        try:
+            if timed_out and process.poll() is None:
+                process.kill()
+        except Exception:
+            pass
+        if process.stderr is not None:
+            stderr_text = process.stderr.read()
+
+    if not timed_out:
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            timed_out = True
+
+    exit_code = process.returncode if process.returncode is not None else 1
+    duration = round(time.time() - started, 3)
+
+    log_lines = [
+        "STEP: export",
+        f"COMMAND: {export_cmd}",
+        f"EXIT_CODE: {exit_code}",
+        f"TIMED_OUT: {timed_out}",
+        f"TIMEOUT_SECONDS: {timeout_seconds if timeout_seconds is not None else 'none'}",
+        f"DURATION_SECONDS: {duration}",
+        "",
+        "--- STREAM COUNTS ---",
+        f"records_exported={records_exported}",
+        f"resolved_entities={resolved_entities}",
+        f"matched_records={matched_records}",
+        f"matched_pairs={matched_pairs}",
+        "",
+        "--- STDERR ---",
+        stderr_text,
+    ]
+    if parse_error:
+        log_lines.extend(["", f"PARSE_ERROR: {parse_error}"])
+    export_log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+
+    step = {
+        "step": "export",
+        "ok": (exit_code == 0) and (not timed_out) and parse_error is None,
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "duration_seconds": duration,
+        "log_file": str(export_log_path),
+        "stdout_tail": (
+            f"records_exported={records_exported}, resolved_entities={resolved_entities}, "
+            f"matched_records={matched_records}, matched_pairs={matched_pairs}"
+        )[-1200:],
+        "stderr_tail": stderr_text[-1200:],
+        "mode": "stream",
+    }
+    if not step["ok"]:
+        if parse_error:
+            step["stderr_tail"] = f"{step['stderr_tail']}\n{parse_error}".strip()[-1200:]
+        return step, {}
+
+    stats_rows = [
+        {"metric": "records_input", "value": records_input_count},
+        {"metric": "records_exported", "value": records_exported},
+        {"metric": "resolved_entities", "value": resolved_entities},
+        {"metric": "matched_records", "value": matched_records},
+        {"metric": "matched_pairs", "value": matched_pairs},
+    ]
+    for level, count in sorted(match_level_counts.items()):
+        stats_rows.append({"metric": f"match_level_{level}", "value": count})
+    for key, count in sorted(match_key_counts.items(), key=lambda x: (-x[1], x[0])):
+        stats_rows.append({"metric": f"match_key::{key}", "value": count})
+    write_csv(match_stats_csv, ["metric", "value"], stats_rows)
+
+    ground_truth_payload = build_ground_truth_match_quality_from_entity_csv(
+        input_jsonl_path=input_jsonl_path,
+        entity_records_csv=entity_records_csv,
+    )
+    ground_truth_json, ground_truth_md = write_ground_truth_match_quality_reports(
+        comparison_dir=comparison_dir,
+        payload=ground_truth_payload,
+    )
+
+    summary_obj = {
+        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "records_input": records_input_count,
+        "records_exported": records_exported,
+        "resolved_entities": resolved_entities,
+        "matched_records": matched_records,
+        "matched_pairs": matched_pairs,
+        "match_level_distribution": {str(k): v for k, v in sorted(match_level_counts.items())},
+        "match_key_distribution": dict(sorted(match_key_counts.items(), key=lambda x: (-x[1], x[0]))),
+        "explain_coverage": {
+            "why_entity_total": 0,
+            "why_entity_ok": 0,
+            "why_records_total": 0,
+            "why_records_ok": 0,
+        },
+        "artifacts": {
+            "entity_records_csv": str(entity_records_csv),
+            "matched_pairs_csv": str(matched_pairs_csv),
+            "match_stats_csv": str(match_stats_csv),
+            "management_summary_md": str(management_md),
+            "ground_truth_match_quality_json": str(ground_truth_json),
+            "ground_truth_match_quality_md": str(ground_truth_md),
+        },
+        "ground_truth_match_quality": ground_truth_payload,
+    }
+    management_json.write_text(json.dumps(summary_obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    lines: list[str] = []
+    lines.append("# Senzing Matching Summary")
+    lines.append("")
+    lines.append(f"- Generated at: {summary_obj['generated_at']} (report generation time).")
+    lines.append(f"- Records input: {records_input_count} (records read from input file).")
+    lines.append(
+        f"- Records exported: {records_exported} "
+        "(rows produced by `sz_export`; can be higher than input due to export row structure)."
+    )
+    lines.append(f"- Resolved entities: {resolved_entities} (final entities resolved by Senzing).")
+    lines.append(f"- Matched records: {matched_records} (records that have at least one match).")
+    lines.append(f"- Matched pairs: {matched_pairs} (matched record pairs).")
+    lines.append(
+        "- Explain coverage: "
+        "whyEntity 0/0, whyRecords 0/0 (explain not executed in stream-export mode)."
+    )
+    lines.append("")
+    lines.append("## Top Match Keys")
+    lines.append("")
+    lines.append("Shows which signal combinations (for example `NAME+DOB`) generated the most matches.")
+    lines.append("")
+    lines.append("| Match Key | Count |")
+    lines.append("| --- | ---: |")
+    if match_key_counts:
+        for key, count in sorted(match_key_counts.items(), key=lambda x: (-x[1], x[0])):
+            lines.append(f"| {key} | {count} |")
+    else:
+        lines.append("| (none) | 0 |")
+
+    lines.append("")
+    lines.append("## Match Level Distribution")
+    lines.append("")
+    lines.append("Distribution of numeric match levels produced by Senzing.")
+    lines.append("")
+    lines.append("| Match Level | Count |")
+    lines.append("| --- | ---: |")
+    if match_level_counts:
+        for level, count in sorted(match_level_counts.items()):
+            lines.append(f"| {level} | {count} |")
+    else:
+        lines.append("| 0 | 0 |")
+    management_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    return step, {
+        "comparison_dir": str(comparison_dir),
+        "entity_records_csv": str(entity_records_csv),
+        "matched_pairs_csv": str(matched_pairs_csv),
+        "match_stats_csv": str(match_stats_csv),
+        "management_summary_json": str(management_json),
+        "management_summary_md": str(management_md),
+        "ground_truth_match_quality_json": str(ground_truth_json),
+        "ground_truth_match_quality_md": str(ground_truth_md),
+        "resolved_entities": resolved_entities,
+        "matched_records_count": matched_records,
+        "matched_pairs_count": matched_pairs,
+        "records_exported": records_exported,
+    }
+
+
 def main() -> int:
     """Entry point."""
     args = parse_args()
@@ -1564,6 +2024,21 @@ def main() -> int:
         print(f"ERROR: --senzing-env not found: {base_setup_env}", file=sys.stderr)
         return 2
 
+    license_source = None
+    license_string = os.environ.get(LICENSE_STRING_ENV, "").strip() or None
+    if args.license_base64_file:
+        license_path = Path(args.license_base64_file).expanduser().resolve()
+        license_string = read_license_string_file(license_path)
+        if not license_string:
+            print(f"ERROR: --license-base64-file not found or empty: {license_path}", file=sys.stderr)
+            return 2
+        license_source = str(license_path)
+    elif license_string:
+        license_source = f"env:{LICENSE_STRING_ENV}"
+
+    if license_string:
+        os.environ[LICENSE_STRING_ENV] = license_string
+
     run_dir = Path(args.output_root).expanduser().resolve() / f"{args.run_name_prefix}_{now_timestamp()}"
     logs_dir = run_dir / "logs"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1592,6 +2067,8 @@ def main() -> int:
     print(f"Project dir: {project_dir}")
     if args.fast_mode:
         print("Fast mode: enabled")
+    if license_source:
+        print(f"License source: {license_source}")
 
     try:
         records_input_count, data_sources, load_input_jsonl = normalize_input_to_jsonl(
@@ -1626,12 +2103,33 @@ def main() -> int:
         print("FAILED at create_project", file=sys.stderr)
         return 1
 
+    project_env = load_setup_env(project_setup_env, license_string=license_string)
+    if not project_env:
+        summary = {
+            "overall_ok": False,
+            "error": "unable to load project setup environment",
+            "run_directory": str(run_dir),
+            "project_dir": str(project_dir),
+            "runtime_warnings": runtime_warnings,
+            "steps": steps,
+        }
+        summary_file.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print("FAILED loading setupEnv", file=sys.stderr)
+        return 1
+    if not license_string:
+        runtime_warnings.append("No Senzing license string detected (evaluation limits may apply).")
+    runtime_engine_config = project_env.get("SENZING_ENGINE_CONFIGURATION_JSON", "").strip() or None
+
     for index, data_source in enumerate(data_sources, start=1):
         cfg_file = config_scripts_dir / f"add_{data_source}.g2c"
         cfg_file.write_text(f"addDataSource {data_source}\nsave\n", encoding="utf-8")
         command = (
-            f"source {shlex.quote(str(project_setup_env))} >/dev/null 2>&1 && "
-            f"sz_configtool -f {shlex.quote(str(cfg_file))}"
+            build_shell_prefix(
+                project_setup_env,
+                engine_config_json=runtime_engine_config,
+                license_string=license_string,
+            )
+            + f"sz_configtool -f {shlex.quote(str(cfg_file))}"
         )
         step = run_shell_step(
             f"configure_data_source_{data_source}",
@@ -1660,7 +2158,14 @@ def main() -> int:
     load_attempts: list[tuple[str, str, Path]] = [
         (
             "primary",
-            build_load_command(project_setup_env, load_input_jsonl, args.load_threads, no_shuffle=False),
+            build_load_command(
+                project_setup_env,
+                load_input_jsonl,
+                args.load_threads,
+                no_shuffle=args.load_no_shuffle_primary,
+                engine_config_json=runtime_engine_config,
+                license_string=license_string,
+            ),
             logs_dir / "02_load.log",
         )
     ]
@@ -1673,6 +2178,8 @@ def main() -> int:
                     load_input_jsonl,
                     args.load_fallback_threads,
                     no_shuffle=True,
+                    engine_config_json=runtime_engine_config,
+                    license_string=license_string,
                 ),
                 logs_dir / "02_load_retry_1.log",
             )
@@ -1721,7 +2228,14 @@ def main() -> int:
         snapshot_attempts: list[tuple[str, str, Path]] = [
             (
                 "primary",
-                build_snapshot_command(project_setup_env, snapshot_prefix, args.snapshot_threads, force_sdk=False),
+                build_snapshot_command(
+                    project_setup_env,
+                    snapshot_prefix,
+                    args.snapshot_threads,
+                    force_sdk=False,
+                    engine_config_json=runtime_engine_config,
+                    license_string=license_string,
+                ),
                 logs_dir / "03_snapshot.log",
             )
         ]
@@ -1734,6 +2248,8 @@ def main() -> int:
                         snapshot_prefix,
                         args.snapshot_fallback_threads,
                         force_sdk=True,
+                        engine_config_json=runtime_engine_config,
+                        license_string=license_string,
                     ),
                     logs_dir / "03_snapshot_retry_1.log",
                 )
@@ -1775,10 +2291,49 @@ def main() -> int:
         if candidates:
             candidates[0].replace(snapshot_json)
 
-    if not args.skip_export:
+    use_stream_export = (
+        args.stream_export and (not args.skip_export) and args.skip_explain and (not args.skip_comparison)
+    )
+    if args.stream_export and not use_stream_export:
+        runtime_warnings.append(
+            "--stream-export requested but requirements not met (needs --skip-explain and comparison enabled); "
+            "falling back to file export."
+        )
+
+    if use_stream_export:
+        step, stream_artifacts = stream_export_to_comparison_outputs(
+            run_dir=run_dir,
+            logs_dir=logs_dir,
+            project_setup_env=project_setup_env,
+            input_jsonl_path=load_input_jsonl,
+            records_input_count=records_input_count,
+            timeout_seconds=args.step_timeout_seconds,
+            engine_config_json=runtime_engine_config,
+            license_string=license_string,
+        )
+        steps.append(step)
+        if not step["ok"]:
+            summary = {
+                "overall_ok": False,
+                "error": "export failed (stream mode)",
+                "run_directory": str(run_dir),
+                "project_dir": str(project_dir),
+                "runtime_warnings": runtime_warnings,
+                "steps": steps,
+            }
+            summary_file.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            print("FAILED at export (stream mode)", file=sys.stderr)
+            return 1
+        comparison_artifacts = stream_artifacts
+        runtime_warnings.append("Export executed in stream mode (no standalone export CSV written).")
+    elif not args.skip_export:
         export_cmd = (
-            f"source {shlex.quote(str(project_setup_env))} >/dev/null 2>&1 && "
-            f"sz_export -o {shlex.quote(str(export_file))}"
+            build_shell_prefix(
+                project_setup_env,
+                engine_config_json=runtime_engine_config,
+                license_string=license_string,
+            )
+            + f"sz_export -o {shlex.quote(str(export_file))}"
         )
         step = run_shell_step(
             "export",
@@ -1800,7 +2355,7 @@ def main() -> int:
             print("FAILED at export", file=sys.stderr)
             return 1
 
-    need_export_rows = export_file.exists() and (not args.skip_explain or not args.skip_comparison)
+    need_export_rows = (not use_stream_export) and export_file.exists() and (not args.skip_explain or not args.skip_comparison)
     export_rows: list[dict[str, str]] = parse_export_rows(export_file) if need_export_rows else []
     matched_records: list[dict[str, str]] = []
     matched_pairs: list[dict[str, str]] = []
@@ -1821,6 +2376,9 @@ def main() -> int:
         "why_records_ok": 0,
         "warnings": [],
     }
+    if use_stream_export:
+        explain_summary["matched_records_detected"] = int(comparison_artifacts.get("matched_records_count") or 0)
+        explain_summary["matched_pairs_detected"] = int(comparison_artifacts.get("matched_pairs_count") or 0)
 
     if not args.skip_explain:
         if args.skip_export or not export_file.exists():
@@ -1981,7 +2539,7 @@ def main() -> int:
                         "No why-records call succeeded in SDK mode."
                     )
 
-    if export_rows and not args.skip_comparison:
+    if (not use_stream_export) and export_rows and not args.skip_comparison:
         comparison_artifacts = make_comparison_outputs(
             run_dir=run_dir,
             input_jsonl_path=load_input_jsonl,
@@ -2006,14 +2564,19 @@ def main() -> int:
             "step_timeout_seconds": args.step_timeout_seconds,
             "load_threads": args.load_threads,
             "load_fallback_threads": args.load_fallback_threads,
+            "load_no_shuffle_primary": args.load_no_shuffle_primary,
             "snapshot_threads": args.snapshot_threads,
             "snapshot_fallback_threads": args.snapshot_fallback_threads,
             "fast_mode": args.fast_mode,
             "skip_comparison": args.skip_comparison,
+            "stream_export_requested": args.stream_export,
+            "stream_export_used": use_stream_export,
             "use_input_jsonl_directly": args.use_input_jsonl_directly,
             "data_sources_override": data_sources_override,
             "keep_loader_temp_files": args.keep_loader_temp_files,
             "stability_retries_enabled": not args.disable_stability_retries,
+            "license_string_present": bool(license_string),
+            "license_source": license_source,
         },
         "runtime_warnings": runtime_warnings,
         "artifacts": {
