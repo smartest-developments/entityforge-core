@@ -81,7 +81,7 @@
 
     const map = {
       'Match %': `Percentage of loaded records that Our reference (SOURCE_IPG_ID groups) considers matched, meaning records that belong to groups with at least 2 members.${isPartial ? ' This run is partial, so percentages refer only to loaded records.' : ''}`,
-      'Entities out of Records': 'Percentage of loaded records represented as unique entities in Our reference grouping. Records with missing/blank IPG are treated as singleton entities (size 1). Higher values usually indicate more fragmentation (more small groups or singletons).',
+      'Entities Created': 'Total number of entities formed by Our reference grouping on the loaded records. Records with missing/blank IPG are treated as singleton entities (size 1).',
       'Match Gain/Loss %': 'Difference between Our and Their matched-record coverage on the same loaded population. Positive means Our side groups more records; negative means Their side groups more records.',
       'Entity Gain/Loss %': 'Difference between Our and Their entity counts on the same loaded population. Positive means Our side forms more entities (typically more fragmented); negative means Their side forms more entities.',
     };
@@ -98,7 +98,7 @@
 
     const map = {
       'Match %': `Percentage of loaded records that Their engine resolves into multi-record entities (at least 2 records per entity).${isPartial ? ' This run is partial, so percentages refer only to loaded records.' : ''}`,
-      'Entities out of Records': 'Percentage of loaded records represented as unique resolved entities by Their engine. Higher values usually indicate more fragmentation (more small groups or singletons).',
+      'Entities Created': 'Total number of entities resolved by Their engine on the loaded records.',
       'Match Gain/Loss %': 'Difference between Their and Our matched-record coverage on the same loaded population. Positive means Their side groups more records; negative means Our side groups more records.',
       'Entity Gain/Loss %': 'Difference between Their and Our entity counts on the same loaded population. Positive means Their side forms more entities (typically more fragmented); negative means Our side forms more entities.',
     };
@@ -168,19 +168,17 @@
     const theirGroupedMembers = asNumber(run.their_grouped_members);
     const ourMatchPct = asNumber(run.our_match_pct) ?? ratioPct(ourGroupedMembers, inputRecords);
     const theirMatchPct = asNumber(run.their_match_pct) ?? ratioPct(theirGroupedMembers, inputRecords);
-    const ourEntitiesPct = ratioPct(ourEntities, inputRecords);
-    const theirEntitiesPct = ratioPct(theirEntities, inputRecords);
     const theirMatchGainLossPct = asNumber(run.their_match_gain_loss_pct);
     const theirEntityGainLossPct = asNumber(run.their_entity_gain_loss_pct);
 
     const ourCards = [
       { label: 'Match %', value: fmtPct(ourMatchPct), help: getOurMetricHelp('Match %', run) },
-      { label: 'Entities out of Records', value: fmtPct(ourEntitiesPct), help: getOurMetricHelp('Entities out of Records', run) },
+      { label: 'Entities Created', value: fmtInt(ourEntities), help: getOurMetricHelp('Entities Created', run) },
     ];
 
     const theirCards = [
       { label: 'Match %', value: fmtPct(theirMatchPct), help: getTheirMetricHelp('Match %', run) },
-      { label: 'Entities out of Records', value: fmtPct(theirEntitiesPct), help: getTheirMetricHelp('Entities out of Records', run) },
+      { label: 'Entities Created', value: fmtInt(theirEntities), help: getTheirMetricHelp('Entities Created', run) },
       { label: 'Match Gain/Loss %', value: fmtSignedPct(theirMatchGainLossPct), help: getTheirMetricHelp('Match Gain/Loss %', run) },
       { label: 'Entity Gain/Loss %', value: fmtSignedPct(theirEntityGainLossPct), help: getTheirMetricHelp('Entity Gain/Loss %', run) },
     ];
@@ -284,20 +282,43 @@
             hoverBackgroundColor: '#ffffff',
             hoverBorderColor: '#ffffff',
             borderWidth: 1,
+            minBarLength: 3,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(context) {
+                const y = context.parsed && typeof context.parsed.y === 'number' ? context.parsed.y : null;
+                return y === null ? 'n/a' : `Entity count: ${fmtInt(y)}`;
+              },
+            },
+          },
+        },
         scales: {
           x: {
             ticks: { color: '#e6edf8' },
             grid: { color: 'rgba(230,237,248,0.14)' },
           },
           y: {
-            ticks: { color: '#e6edf8' },
+            type: 'logarithmic',
+            min: 1,
+            title: {
+              display: true,
+              text: 'Entity count (log scale)',
+              color: '#e6edf8',
+            },
+            ticks: {
+              color: '#e6edf8',
+              callback(value) {
+                return fmtInt(Number(value));
+              },
+            },
             grid: { color: 'rgba(230,237,248,0.14)' },
           },
         },
@@ -318,20 +339,43 @@
             hoverBackgroundColor: '#ffffff',
             hoverBorderColor: '#ffffff',
             borderWidth: 1,
+            minBarLength: 3,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(context) {
+                const y = context.parsed && typeof context.parsed.y === 'number' ? context.parsed.y : null;
+                return y === null ? 'n/a' : `Entity count: ${fmtInt(y)}`;
+              },
+            },
+          },
+        },
         scales: {
           x: {
             ticks: { color: '#e6edf8' },
             grid: { color: 'rgba(230,237,248,0.14)' },
           },
           y: {
-            ticks: { color: '#e6edf8' },
+            type: 'logarithmic',
+            min: 1,
+            title: {
+              display: true,
+              text: 'Entity count (log scale)',
+              color: '#e6edf8',
+            },
+            ticks: {
+              color: '#e6edf8',
+              callback(value) {
+                return fmtInt(Number(value));
+              },
+            },
             grid: { color: 'rgba(230,237,248,0.14)' },
           },
         },

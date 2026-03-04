@@ -1,939 +1,102 @@
 {
-  "generated_at": "2026-03-03T22:45:54",
+  "generated_at": "2026-03-04T09:36:55",
   "output_root": "/Users/simones/Developer/mapper-ai-main/MVP/output",
   "dashboard_data": "/Users/simones/Developer/mapper-ai-main/MVP/dashboard/management_dashboard_data.js",
   "summary": {
-    "runs_total": 10,
-    "runs_pass": 5,
+    "runs_total": 1,
+    "runs_pass": 1,
     "runs_fail": 0,
-    "runs_skip": 5
+    "runs_skip": 0
   },
   "runs": [
     {
-      "run_id": "20260303_221424__one-million-partial-616k",
-      "run_label": "one-million-final-stream-debug",
-      "source_input_name": "one_million_stress.jsonl",
-      "run_status": "failed",
-      "overall_status": "PASS",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": 616942,
-          "recomputed": 616942,
-          "status": "PASS",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": 2360565,
-          "recomputed": 2360565,
-          "status": "PASS",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": 287306,
-          "recomputed": 287306,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 287306,
-          "recomputed": 287306,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": 27.01,
-          "recomputed": 27.01,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": 72.99,
-          "recomputed": 72.99,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": 56.32,
-          "recomputed": 56.32,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 100.0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 711583,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": 310843,
-          "recomputed": 310843,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": 840070,
-          "recomputed": 840070,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": 400740,
-          "recomputed": 400740,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_174641__one-million-final-stream-debug",
-      "run_label": "one-million-final-stream-debug",
-      "source_input_name": "one_million_stress.jsonl",
-      "run_status": "incomplete",
-      "overall_status": "SKIP",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 0.0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_174451__one-million-final-stream",
-      "run_label": "one-million-final-stream",
-      "source_input_name": "one_million_stress.jsonl",
-      "run_status": "incomplete",
-      "overall_status": "SKIP",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 0.0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_174400__stream-smoke-30c",
-      "run_label": "stream-smoke-30c",
-      "source_input_name": "stream_smoke_30.jsonl",
+      "run_id": "20260304_085032__one-hundred-thousand-full",
+      "run_label": "one-hundred-thousand-full",
+      "source_input_name": "one_hundred_thousand_stress.jsonl",
       "run_status": "success",
       "overall_status": "PASS",
       "checks": [
         {
           "name": "Input Records",
-          "dashboard": 30,
-          "recomputed": 30,
+          "dashboard": 100000,
+          "recomputed": 100000,
           "status": "PASS",
           "source": "technical output/input_normalized.jsonl"
         },
         {
           "name": "Matched Pairs",
-          "dashboard": 9,
-          "recomputed": 9,
+          "dashboard": 200393,
+          "recomputed": 200393,
           "status": "PASS",
           "source": "technical output/matched_pairs.csv"
         },
         {
           "name": "Resolved Entities",
-          "dashboard": 21,
-          "recomputed": 21,
+          "dashboard": 46793,
+          "recomputed": 46793,
           "status": "PASS",
           "source": "technical output/entity_records.csv"
         },
         {
           "name": "Entity Size Distribution Total",
-          "dashboard": 21,
-          "recomputed": 21,
+          "dashboard": 46793,
+          "recomputed": 46793,
           "status": "PASS",
           "source": "technical output/entity_records.csv"
         },
         {
           "name": "Their Match Found (%)",
-          "dashboard": 40.0,
-          "recomputed": 40.0,
+          "dashboard": 37.32,
+          "recomputed": 37.32,
           "status": "PASS",
           "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
         },
         {
           "name": "Their False Positive (%)",
-          "dashboard": 60.0,
-          "recomputed": 60.0,
+          "dashboard": 62.68,
+          "recomputed": 62.68,
           "status": "PASS",
           "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
         },
         {
           "name": "Their Match Missed (%)",
-          "dashboard": 50.0,
-          "recomputed": 50.0,
+          "dashboard": 18.35,
+          "recomputed": 18.35,
           "status": "PASS",
           "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
         },
         {
           "name": "Our Match Found (%)",
-          "dashboard": 20.0,
-          "recomputed": 20.0,
+          "dashboard": 50.78,
+          "recomputed": 50.78,
           "status": "PASS",
           "source": "technical output/management_summary.json (discovery_metrics)"
         },
         {
           "name": "Our Matched Pairs",
-          "dashboard": 4,
-          "recomputed": 4,
+          "dashboard": 52296,
+          "recomputed": 52296,
           "status": "PASS",
           "source": "technical output/management_summary.json (discovery_metrics)"
         },
         {
           "name": "Their True Positive",
-          "dashboard": 2,
-          "recomputed": 2,
+          "dashboard": 51273,
+          "recomputed": 51273,
           "status": "PASS",
           "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
         },
         {
           "name": "Their False Positive",
-          "dashboard": 3,
-          "recomputed": 3,
+          "dashboard": 86106,
+          "recomputed": 86106,
           "status": "PASS",
           "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
         },
         {
           "name": "Their False Negative",
-          "dashboard": 2,
-          "recomputed": 2,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_174221__stream-smoke-30b",
-      "run_label": "stream-smoke-30b",
-      "source_input_name": "stream_smoke_30.jsonl",
-      "run_status": "incomplete",
-      "overall_status": "SKIP",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 0.0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_173857__stream-smoke-30",
-      "run_label": "stream-smoke-30",
-      "source_input_name": "stream_smoke_30.jsonl",
-      "run_status": "incomplete",
-      "overall_status": "SKIP",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 0.0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_171324__one-million-final",
-      "run_label": "one-million-final",
-      "source_input_name": "one_million_stress.jsonl",
-      "run_status": "incomplete",
-      "overall_status": "SKIP",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 0.0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 0,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": null,
-          "recomputed": null,
-          "status": "SKIP",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_171153__path-smoke-50",
-      "run_label": "path-smoke-50",
-      "source_input_name": "path_smoke_50.jsonl",
-      "run_status": "success",
-      "overall_status": "PASS",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": 50,
-          "recomputed": 50,
-          "status": "PASS",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": 12,
-          "recomputed": 12,
-          "status": "PASS",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": 38,
-          "recomputed": 38,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 38,
-          "recomputed": 38,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": 42.86,
-          "recomputed": 42.86,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": 57.14,
-          "recomputed": 57.14,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": 50.0,
-          "recomputed": 50.0,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 20.69,
-          "recomputed": 20.69,
-          "status": "PASS",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 6,
-          "recomputed": 6,
-          "status": "PASS",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": 3,
-          "recomputed": 3,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": 4,
-          "recomputed": 4,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": 3,
-          "recomputed": 3,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_155125__metric-smoke-200-safe-tuned",
-      "run_label": "metric-smoke-200-safe-tuned",
-      "source_input_name": "metric_smoke_200.jsonl",
-      "run_status": "success",
-      "overall_status": "PASS",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": 200,
-          "recomputed": 200,
-          "status": "PASS",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": 106,
-          "recomputed": 106,
-          "status": "PASS",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": 98,
-          "recomputed": 98,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 98,
-          "recomputed": 98,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": 68.25,
-          "recomputed": 68.25,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": 31.75,
-          "recomputed": 31.75,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": 1.15,
-          "recomputed": 1.15,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 48.07,
-          "recomputed": 48.07,
-          "status": "PASS",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 87,
-          "recomputed": 87,
-          "status": "PASS",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": 86,
-          "recomputed": 86,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": 40,
-          "recomputed": 40,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": 1,
-          "recomputed": 1,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        }
-      ]
-    },
-    {
-      "run_id": "20260303_153108__metric-smoke-200",
-      "run_label": "metric-smoke-200",
-      "source_input_name": "mvp_metric_smoke_200.jsonl",
-      "run_status": "success",
-      "overall_status": "PASS",
-      "checks": [
-        {
-          "name": "Input Records",
-          "dashboard": 200,
-          "recomputed": 200,
-          "status": "PASS",
-          "source": "technical output/input_normalized.jsonl"
-        },
-        {
-          "name": "Matched Pairs",
-          "dashboard": 107,
-          "recomputed": 107,
-          "status": "PASS",
-          "source": "technical output/matched_pairs.csv"
-        },
-        {
-          "name": "Resolved Entities",
-          "dashboard": 97,
-          "recomputed": 97,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Entity Size Distribution Total",
-          "dashboard": 97,
-          "recomputed": 97,
-          "status": "PASS",
-          "source": "technical output/entity_records.csv"
-        },
-        {
-          "name": "Their Match Found (%)",
-          "dashboard": 67.97,
-          "recomputed": 67.97,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive (%)",
-          "dashboard": 32.03,
-          "recomputed": 32.03,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their Match Missed (%)",
-          "dashboard": 0.0,
-          "recomputed": 0.0,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Our Match Found (%)",
-          "dashboard": 48.07,
-          "recomputed": 48.07,
-          "status": "PASS",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Our Matched Pairs",
-          "dashboard": 87,
-          "recomputed": 87,
-          "status": "PASS",
-          "source": "technical output/management_summary.json (discovery_metrics)"
-        },
-        {
-          "name": "Their True Positive",
-          "dashboard": 87,
-          "recomputed": 87,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Positive",
-          "dashboard": 41,
-          "recomputed": 41,
-          "status": "PASS",
-          "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-        },
-        {
-          "name": "Their False Negative",
-          "dashboard": 0,
-          "recomputed": 0,
+          "dashboard": 11526,
+          "recomputed": 11526,
           "status": "PASS",
           "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
         }

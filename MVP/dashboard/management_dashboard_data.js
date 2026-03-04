@@ -1,189 +1,158 @@
 window.MVP_DASHBOARD_DATA = {
-  "generated_at": "2026-03-03T23:29:03",
+  "generated_at": "2026-03-04T09:36:53",
   "output_root": "/Users/simones/Developer/mapper-ai-main/MVP/output",
   "runs": [
     {
-      "run_id": "20260303_221424__one-million-partial-616k",
-      "run_timestamp": "20260303_221424",
-      "run_datetime": "2026-03-03T22:14:24",
-      "run_label": "one-million-final-stream-debug",
-      "source_input_name": "one_million_stress.jsonl",
-      "run_status": "failed",
+      "run_id": "20260304_085032__one-hundred-thousand-full",
+      "run_timestamp": "20260304_085032",
+      "run_datetime": "2026-03-04T08:50:32",
+      "run_label": "one-hundred-thousand-full",
+      "source_input_name": "one_hundred_thousand_stress.jsonl",
+      "run_status": "success",
       "has_management_summary": true,
       "has_ground_truth_summary": true,
       "has_run_summary": true,
-      "overall_ok": false,
+      "overall_ok": true,
       "quality_available": true,
-      "generated_at": "2026-03-03T21:13:50",
-      "execution_seconds": 15537.188,
-      "execution_minutes": 258.95,
-      "execution_minutes_estimated": 258.95,
+      "generated_at": "2026-03-04T08:36:51",
+      "execution_seconds": 2773.58,
+      "execution_minutes": 46.23,
+      "execution_minutes_estimated": 46.23,
       "execution_minutes_is_estimate": false,
-      "records_input": 616942,
-      "records_input_loaded": 616942,
-      "records_input_reported": 1000000,
-      "records_exported": 2649792,
-      "our_entities_formed": 380861,
-      "their_entities_formed": 287306,
-      "our_grouped_members": 341801,
-      "their_grouped_members": 493256,
-      "our_match_pct": 55.4,
-      "their_match_pct": 79.95,
-      "our_match_gain_loss_pct": -24.55,
-      "their_match_gain_loss_pct": 24.55,
-      "our_entity_gain_loss_pct": 15.16,
-      "their_entity_gain_loss_pct": -15.16,
-      "our_resolved_entities": 380861,
-      "resolved_entities": 287306,
-      "matched_records": 2360575,
-      "matched_pairs": 2360565,
-      "pair_precision_pct": 27.01,
-      "pair_recall_pct": 43.68,
-      "true_positive": 310843,
-      "false_positive": 840070,
-      "false_negative": 400740,
-      "discovery_available": false,
-      "extra_true_matches_found": null,
-      "extra_false_matches_found": null,
-      "extra_match_precision_pct": null,
-      "extra_match_recall_pct": null,
-      "extra_gain_vs_known_pct": null,
-      "known_pairs_ipg": 711583,
-      "discoverable_true_pairs": null,
-      "predicted_pairs_beyond_known": null,
-      "net_extra_matches": null,
-      "overall_false_positive_pct": 72.99,
-      "overall_false_positive_discovery_pct": null,
-      "overall_match_correctness_pct": null,
-      "our_true_positive": 711583,
-      "our_true_pairs_total": 711583,
-      "our_false_positive": 0,
-      "our_false_negative": 0,
-      "our_match_coverage_pct": 100.0,
-      "baseline_match_coverage_pct": null,
-      "senzing_true_coverage_pct": null,
-      "predicted_pairs_labeled": 1150913,
-      "ground_truth_pairs_labeled": 711583,
+      "records_input": 100000,
+      "records_input_loaded": 100000,
+      "records_input_reported": 100000,
+      "records_exported": 247703,
+      "our_entities_formed": 64401,
+      "their_entities_formed": 46793,
+      "our_grouped_members": 54769,
+      "their_grouped_members": 79593,
+      "our_match_pct": 54.77,
+      "their_match_pct": 79.59,
+      "our_match_gain_loss_pct": -24.82,
+      "their_match_gain_loss_pct": 24.82,
+      "our_entity_gain_loss_pct": 17.61,
+      "their_entity_gain_loss_pct": -17.61,
+      "our_resolved_entities": 64401,
+      "resolved_entities": 46793,
+      "matched_records": 200393,
+      "matched_pairs": 200393,
+      "pair_precision_pct": 37.32,
+      "pair_recall_pct": 81.65,
+      "true_positive": 51273,
+      "false_positive": 86106,
+      "false_negative": 11526,
+      "discovery_available": true,
+      "extra_true_matches_found": 28243,
+      "extra_false_matches_found": 141562,
+      "extra_match_precision_pct": 16.63,
+      "extra_match_recall_pct": 55.72,
+      "extra_gain_vs_known_pct": 54.01,
+      "known_pairs_ipg": 52296,
+      "discoverable_true_pairs": 50689,
+      "predicted_pairs_beyond_known": 169805,
+      "net_extra_matches": -113319,
+      "overall_false_positive_pct": 62.68,
+      "overall_false_positive_discovery_pct": 70.64,
+      "overall_match_correctness_pct": 29.36,
+      "our_true_positive": 52296,
+      "our_true_pairs_total": 102985,
+      "our_false_positive": 10503,
+      "our_false_negative": 50689,
+      "our_match_coverage_pct": 50.78,
+      "baseline_match_coverage_pct": 50.78,
+      "senzing_true_coverage_pct": 57.13,
+      "predicted_pairs_labeled": 137379,
+      "ground_truth_pairs_labeled": 62799,
       "match_level_distribution": {
-        "1": 327715,
-        "2": 991470,
-        "3": 1041380
+        "1": 52690,
+        "2": 97845,
+        "3": 49858
       },
       "top_match_keys": [
         [
-          "NAME+DOB+ADDRESS+TAX_ID+OTHER_ID+NATIONALITY",
-          117140
+          "NAME+DOB+ADDRESS+TAX_ID+EMAIL+OTHER_ID+NATIONALITY",
+          9867
         ],
         [
-          "NAME+DOB+TAX_ID+OTHER_ID+NATIONALITY",
-          40313
+          "NAME+DOB+ADDRESS+TAX_ID+OTHER_ID+NATIONALITY",
+          9070
         ],
         [
           "NAME+DOB+ADDRESS+TAX_ID+WEBSITE+OTHER_ID+NATIONALITY+LEI_NUMBER",
-          28908
+          4503
+        ],
+        [
+          "NAME+DOB+TAX_ID+OTHER_ID+NATIONALITY",
+          3734
         ],
         [
           "NAME+DOB+ADDRESS+TAX_ID+WEBSITE+OTHER_ID+NATIONALITY",
-          20898
+          3282
         ],
         [
-          "NAME+DOB+TAX_ID+NATIONALITY",
-          13035
-        ],
-        [
-          "NAME+DOB+OTHER_ID+NATIONALITY",
-          12708
-        ],
-        [
-          "NAME+DOB+ADDRESS+TAX_ID+NATIONALITY",
-          12480
-        ],
-        [
-          "NAME+DOB+ADDRESS+OTHER_ID+NATIONALITY",
-          11097
+          "NAME+DOB+TAX_ID+EMAIL+OTHER_ID+NATIONALITY",
+          2609
         ],
         [
           "NAME+DOB+TAX_ID+WEBSITE+OTHER_ID+NATIONALITY+LEI_NUMBER",
-          9405
+          1524
         ],
         [
-          "NAME+DOB+NATIONALITY",
-          7028
+          "NAME+DOB+OTHER_ID+NATIONALITY",
+          1380
+        ],
+        [
+          "NAME+DOB+TAX_ID+NATIONALITY",
+          1374
+        ],
+        [
+          "NAME+DOB+ADDRESS+TAX_ID+NATIONALITY",
+          1187
         ]
       ],
-      "top_match_keys_total_pairs": 327715,
-      "top_match_keys_top10_total": 273012,
+      "top_match_keys_total_pairs": 52690,
+      "top_match_keys_top10_total": 38530,
       "entity_size_distribution": {
-        "1": 123686,
-        "2": 73625,
-        "3": 43161,
-        "4": 25937,
-        "5": 12935,
-        "6": 7791,
-        "7": 79,
-        "8": 47,
-        "9": 33,
-        "10": 6,
-        "11": 4,
-        "12": 2
+        "1": 20407,
+        "2": 11857,
+        "3": 6955,
+        "4": 4174,
+        "5": 2093,
+        "6": 1297,
+        "7": 9,
+        "8": 1
       },
       "our_entity_size_distribution": {
-        "1": 275141,
-        "2": 55668,
-        "3": 22736,
-        "4": 13504,
-        "5": 6639,
-        "6": 3228,
-        "7": 70,
-        "8": 146,
-        "9": 207,
-        "10": 269,
-        "11": 313,
-        "12": 375,
-        "13": 399,
-        "14": 434,
-        "15": 379,
-        "16": 373,
-        "17": 303,
-        "18": 202,
-        "19": 173,
-        "20": 112,
-        "21": 64,
-        "22": 49,
-        "23": 23,
-        "24": 29,
-        "25": 13,
-        "26": 5,
-        "27": 4,
-        "28": 3
+        "1": 45231,
+        "2": 10044,
+        "3": 4492,
+        "4": 2683,
+        "5": 1292,
+        "6": 618,
+        "7": 27,
+        "8": 10,
+        "9": 4
       },
       "entity_pairings_distribution": {
-        "0": 123686,
-        "1": 73625,
-        "3": 43161,
-        "6": 25937,
-        "10": 12935,
-        "15": 7791,
-        "21": 79,
-        "28": 47,
-        "36": 33,
-        "45": 6,
-        "55": 4,
-        "66": 2
+        "0": 20407,
+        "1": 11857,
+        "3": 6955,
+        "6": 4174,
+        "10": 2093,
+        "15": 1297,
+        "21": 9,
+        "28": 1
       },
       "record_pairing_degree_distribution": {
-        "0": 123686,
-        "1": 147250,
-        "2": 129483,
-        "3": 103748,
-        "4": 64675,
-        "5": 46746,
-        "6": 553,
-        "7": 376,
-        "8": 297,
-        "9": 60,
-        "10": 44,
-        "11": 24
+        "0": 20407,
+        "1": 23714,
+        "2": 20865,
+        "3": 16696,
+        "4": 10465,
+        "5": 7782,
+        "6": 63,
+        "7": 8
       },
       "explain_coverage": {
         "why_entity_total": 0,
@@ -191,11 +160,14 @@ window.MVP_DASHBOARD_DATA = {
         "why_records_total": 0,
         "why_records_ok": 0
       },
-      "runtime_warnings": [],
-      "input_source_path": "20260303_221424__one-million-partial-616k/input_source.jsonl",
-      "management_summary_path": "20260303_221424__one-million-partial-616k/management_summary.md",
-      "ground_truth_summary_path": "20260303_221424__one-million-partial-616k/ground_truth_match_quality.md",
-      "technical_path": "20260303_221424__one-million-partial-616k/technical output",
+      "runtime_warnings": [
+        "load_records primary attempt failed; fallback 'fallback_single_thread' succeeded.",
+        "Export executed in stream mode (no standalone export CSV written)."
+      ],
+      "input_source_path": "20260304_085032__one-hundred-thousand-full/input_source.jsonl",
+      "management_summary_path": "20260304_085032__one-hundred-thousand-full/management_summary.md",
+      "ground_truth_summary_path": "20260304_085032__one-hundred-thousand-full/ground_truth_match_quality.md",
+      "technical_path": "20260304_085032__one-hundred-thousand-full/technical output",
       "mapping_info": {
         "data_source": "PARTNERS",
         "tax_id_type": "TIN",
@@ -203,69 +175,74 @@ window.MVP_DASHBOARD_DATA = {
       },
       "artifacts": [
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/ground_truth_match_quality.md",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/ground_truth_match_quality.md",
           "display_name": "ground_truth_match_quality.md",
-          "size_bytes": 3086
+          "size_bytes": 2556
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/input_source.jsonl",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/input_source.jsonl",
           "display_name": "input_source.jsonl",
-          "size_bytes": 679516738
+          "size_bytes": 67956574
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/management_summary.md",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/management_summary.md",
           "display_name": "management_summary.md",
-          "size_bytes": 9046
+          "size_bytes": 10493
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/entity_records.csv",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical",
+          "display_name": "technical",
+          "size_bytes": 0
+        },
+        {
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/entity_records.csv",
           "display_name": "technical output/entity_records.csv",
-          "size_bytes": 156767372
+          "size_bytes": 14362788
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/field_map.json",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/field_map.json",
           "display_name": "technical output/field_map.json",
           "size_bytes": 988
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/ground_truth_match_quality.json",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/ground_truth_match_quality.json",
           "display_name": "technical output/ground_truth_match_quality.json",
-          "size_bytes": 2898
+          "size_bytes": 2221
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/input_normalized.jsonl",
-          "display_name": "technical output/input_normalized.jsonl",
-          "size_bytes": 786750874
-        },
-        {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/management_summary.json",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/management_summary.json",
           "display_name": "technical output/management_summary.json",
-          "size_bytes": 12870
+          "size_bytes": 13405
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/mapped_output.jsonl",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/mapped_output.jsonl",
           "display_name": "technical output/mapped_output.jsonl",
-          "size_bytes": 786750874
+          "size_bytes": 78598737
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/mapping_summary.json",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/mapping_summary.json",
           "display_name": "technical output/mapping_summary.json",
-          "size_bytes": 2536
+          "size_bytes": 2479
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/match_stats.csv",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/match_stats.csv",
           "display_name": "technical output/match_stats.csv",
-          "size_bytes": 9432
+          "size_bytes": 9660
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/matched_pairs.csv",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/matched_pairs.csv",
           "display_name": "technical output/matched_pairs.csv",
-          "size_bytes": 180044205
+          "size_bytes": 15527044
         },
         {
-          "relative_path": "20260303_221424__one-million-partial-616k/technical output/run_summary.json",
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/run_registry.csv",
+          "display_name": "technical output/run_registry.csv",
+          "size_bytes": 919
+        },
+        {
+          "relative_path": "20260304_085032__one-hundred-thousand-full/technical output/run_summary.json",
           "display_name": "technical output/run_summary.json",
-          "size_bytes": 3954
+          "size_bytes": 8671
         }
       ],
       "validation": {
@@ -273,234 +250,74 @@ window.MVP_DASHBOARD_DATA = {
         "checks": [
           {
             "name": "Selected Input Records",
-            "expected": 616942,
-            "actual": 616942,
+            "expected": 100000,
+            "actual": 100000,
             "status": "PASS",
             "source": "technical output/entity_records.csv (deduplicated DATA_SOURCE+RECORD_ID)"
           },
           {
             "name": "Matched Pairs",
-            "expected": 2360565,
-            "actual": 2360565,
+            "expected": 200393,
+            "actual": 200393,
             "status": "PASS",
             "source": "technical output/matched_pairs.csv"
           },
           {
             "name": "Selected Resolved Entities",
-            "expected": 287306,
-            "actual": 287306,
+            "expected": 46793,
+            "actual": 46793,
             "status": "PASS",
             "source": "technical output/entity_records.csv"
           },
           {
             "name": "Match Correctness (%)",
-            "expected": 27.01,
-            "actual": 27.01,
+            "expected": 37.32,
+            "actual": 37.32,
             "status": "PASS",
             "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
           },
           {
             "name": "Our Match Coverage (%)",
-            "expected": 100.0,
-            "actual": 100.0,
+            "expected": 50.78,
+            "actual": 50.78,
             "status": "PASS",
             "source": "technical output/management_summary.json (discovery baseline)"
           },
           {
             "name": "False Positive (%)",
-            "expected": 72.99,
-            "actual": 72.99,
+            "expected": 62.68,
+            "actual": 62.68,
             "status": "PASS",
             "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
           },
           {
             "name": "Match Missed (%)",
-            "expected": 56.32,
-            "actual": 56.32,
+            "expected": 18.35,
+            "actual": 18.35,
             "status": "PASS",
             "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
           }
         ],
-        "run_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_221424__one-million-partial-616k",
-        "input_source_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_221424__one-million-partial-616k/input_source.jsonl",
-        "management_summary_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_221424__one-million-partial-616k/technical output/management_summary.json",
-        "ground_truth_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_221424__one-million-partial-616k/technical output/ground_truth_match_quality.json",
-        "matched_pairs_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_221424__one-million-partial-616k/technical output/matched_pairs.csv",
-        "entity_records_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_221424__one-million-partial-616k/technical output/entity_records.csv",
-        "input_jsonl_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_221424__one-million-partial-616k/technical output/input_normalized.jsonl"
-      }
-    },
-    {
-      "run_id": "20260303_171324__one-million-final",
-      "run_timestamp": "20260303_171324",
-      "run_datetime": "2026-03-03T17:13:24",
-      "run_label": "one-million-final",
-      "source_input_name": "one_million_stress.jsonl",
-      "run_status": "incomplete",
-      "has_management_summary": false,
-      "has_ground_truth_summary": false,
-      "has_run_summary": false,
-      "overall_ok": null,
-      "quality_available": false,
-      "generated_at": null,
-      "execution_seconds": null,
-      "execution_minutes": null,
-      "execution_minutes_estimated": null,
-      "execution_minutes_is_estimate": false,
-      "records_input": null,
-      "records_input_loaded": null,
-      "records_input_reported": null,
-      "records_exported": null,
-      "our_entities_formed": null,
-      "their_entities_formed": null,
-      "our_grouped_members": null,
-      "their_grouped_members": null,
-      "our_match_pct": null,
-      "their_match_pct": null,
-      "our_match_gain_loss_pct": null,
-      "their_match_gain_loss_pct": null,
-      "our_entity_gain_loss_pct": null,
-      "their_entity_gain_loss_pct": null,
-      "our_resolved_entities": null,
-      "resolved_entities": null,
-      "matched_records": null,
-      "matched_pairs": null,
-      "pair_precision_pct": null,
-      "pair_recall_pct": null,
-      "true_positive": null,
-      "false_positive": null,
-      "false_negative": null,
-      "discovery_available": false,
-      "extra_true_matches_found": null,
-      "extra_false_matches_found": null,
-      "extra_match_precision_pct": null,
-      "extra_match_recall_pct": null,
-      "extra_gain_vs_known_pct": null,
-      "known_pairs_ipg": 0,
-      "discoverable_true_pairs": null,
-      "predicted_pairs_beyond_known": null,
-      "net_extra_matches": null,
-      "overall_false_positive_pct": null,
-      "overall_false_positive_discovery_pct": null,
-      "overall_match_correctness_pct": null,
-      "our_true_positive": 0,
-      "our_true_pairs_total": 0,
-      "our_false_positive": 0,
-      "our_false_negative": 0,
-      "our_match_coverage_pct": 0.0,
-      "baseline_match_coverage_pct": null,
-      "senzing_true_coverage_pct": null,
-      "predicted_pairs_labeled": null,
-      "ground_truth_pairs_labeled": null,
-      "match_level_distribution": {},
-      "top_match_keys": [],
-      "top_match_keys_total_pairs": 0,
-      "top_match_keys_top10_total": 0,
-      "entity_size_distribution": {},
-      "our_entity_size_distribution": {},
-      "entity_pairings_distribution": {},
-      "record_pairing_degree_distribution": {},
-      "explain_coverage": {},
-      "runtime_warnings": [],
-      "input_source_path": "20260303_171324__one-million-final/input_source.json",
-      "management_summary_path": "20260303_171324__one-million-final/management_summary.md",
-      "ground_truth_summary_path": "20260303_171324__one-million-final/ground_truth_match_quality.md",
-      "technical_path": "20260303_171324__one-million-final/technical output",
-      "mapping_info": {
-        "data_source": "PARTNERS",
-        "tax_id_type": "TIN",
-        "execution_mode": "docker"
-      },
-      "artifacts": [
-        {
-          "relative_path": "20260303_171324__one-million-final/technical output/field_map.json",
-          "display_name": "technical output/field_map.json",
-          "size_bytes": 988
-        },
-        {
-          "relative_path": "20260303_171324__one-million-final/technical output/mapped_output.jsonl",
-          "display_name": "technical output/mapped_output.jsonl",
-          "size_bytes": 786750874
-        },
-        {
-          "relative_path": "20260303_171324__one-million-final/technical output/mapping_summary.json",
-          "display_name": "technical output/mapping_summary.json",
-          "size_bytes": 2391
-        }
-      ],
-      "validation": {
-        "status": "SKIP",
-        "checks": [
-          {
-            "name": "Selected Input Records",
-            "expected": null,
-            "actual": null,
-            "status": "SKIP",
-            "source": "technical output/input_normalized.jsonl"
-          },
-          {
-            "name": "Matched Pairs",
-            "expected": null,
-            "actual": null,
-            "status": "SKIP",
-            "source": "technical output/matched_pairs.csv"
-          },
-          {
-            "name": "Selected Resolved Entities",
-            "expected": null,
-            "actual": null,
-            "status": "SKIP",
-            "source": "technical output/entity_records.csv"
-          },
-          {
-            "name": "Match Correctness (%)",
-            "expected": null,
-            "actual": null,
-            "status": "SKIP",
-            "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-          },
-          {
-            "name": "Our Match Coverage (%)",
-            "expected": 0.0,
-            "actual": null,
-            "status": "SKIP",
-            "source": "technical output/management_summary.json (discovery baseline)"
-          },
-          {
-            "name": "False Positive (%)",
-            "expected": null,
-            "actual": null,
-            "status": "SKIP",
-            "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-          },
-          {
-            "name": "Match Missed (%)",
-            "expected": null,
-            "actual": null,
-            "status": "SKIP",
-            "source": "technical output/ground_truth_match_quality.json (pair_metrics)"
-          }
-        ],
-        "run_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_171324__one-million-final",
-        "input_source_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_171324__one-million-final/input_source.json",
-        "management_summary_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_171324__one-million-final/technical output/management_summary.json",
-        "ground_truth_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_171324__one-million-final/technical output/ground_truth_match_quality.json",
-        "matched_pairs_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_171324__one-million-final/technical output/matched_pairs.csv",
-        "entity_records_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_171324__one-million-final/technical output/entity_records.csv",
-        "input_jsonl_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260303_171324__one-million-final/technical output/input_normalized.jsonl"
+        "run_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260304_085032__one-hundred-thousand-full",
+        "input_source_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260304_085032__one-hundred-thousand-full/input_source.jsonl",
+        "management_summary_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260304_085032__one-hundred-thousand-full/technical output/management_summary.json",
+        "ground_truth_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260304_085032__one-hundred-thousand-full/technical output/ground_truth_match_quality.json",
+        "matched_pairs_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260304_085032__one-hundred-thousand-full/technical output/matched_pairs.csv",
+        "entity_records_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260304_085032__one-hundred-thousand-full/technical output/entity_records.csv",
+        "input_jsonl_path": "/Users/simones/Developer/mapper-ai-main/MVP/output/20260304_085032__one-hundred-thousand-full/technical output/input_normalized.jsonl"
       }
     }
   ],
   "summary": {
-    "runs_total": 2,
+    "runs_total": 1,
     "quality_runs_total": 1,
-    "successful_runs": 0,
-    "failed_runs": 1,
-    "incomplete_runs": 1,
-    "latest_run_id": "20260303_221424__one-million-partial-616k",
-    "avg_pair_precision_pct": 27.01,
-    "avg_pair_recall_pct": 43.68,
-    "records_input_total": 616942,
-    "matched_pairs_total": 2360565
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "incomplete_runs": 0,
+    "latest_run_id": "20260304_085032__one-hundred-thousand-full",
+    "avg_pair_precision_pct": 37.32,
+    "avg_pair_recall_pct": 81.65,
+    "records_input_total": 100000,
+    "matched_pairs_total": 200393
   }
 };
