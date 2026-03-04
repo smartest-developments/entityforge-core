@@ -20,6 +20,18 @@ from pathlib import Path
 LARGE_RUN_THRESHOLD_DEFAULT = 300_000
 LARGE_RUN_TIMEOUT_SECONDS_DEFAULT = 10_800
 LARGE_RUN_PRECHECK_MIN_FREE_GB_DEFAULT = 20.0
+TEXT_ENCODING_CANDIDATES = (
+    "utf-8",
+    "utf-8-sig",
+    "utf-16",
+    "utf-16-le",
+    "utf-16-be",
+    "utf-32",
+    "utf-32-le",
+    "utf-32-be",
+    "cp1252",
+    "latin-1",
+)
 
 
 def now_timestamp() -> str:
@@ -198,6 +210,73 @@ def read_license_string(path: Path) -> str | None:
     return compact if compact else None
 
 
+def load_json_payload_with_fallback(path: Path) -> tuple[object, str]:
+    raw = path.read_bytes()
+    if not raw:
+        raise ValueError(f"Input file is empty: {path}")
+
+    errors: list[str] = []
+    for encoding in TEXT_ENCODING_CANDIDATES:
+        try:
+            text = raw.decode(encoding)
+        except UnicodeDecodeError as err:
+            errors.append(f"{encoding}: decode failed ({err})")
+            continue
+        try:
+            return json.loads(text), encoding
+        except json.JSONDecodeError as err:
+            errors.append(f"{encoding}: json parse failed ({err})")
+
+    preview = "; ".join(errors[:4])
+    raise ValueError(
+        f"Unable to parse JSON input file {path}. Tried encodings: {', '.join(TEXT_ENCODING_CANDIDATES)}. "
+        f"Sample errors: {preview}"
+    )
+
+
+def load_jsonl_text_with_fallback(path: Path) -> tuple[str, str]:
+    raw = path.read_bytes()
+    if not raw:
+        return "", "utf-8"
+
+    errors: list[str] = []
+    for encoding in TEXT_ENCODING_CANDIDATES:
+        try:
+            text = raw.decode(encoding)
+        except UnicodeDecodeError as err:
+            errors.append(f"{encoding}: decode failed ({err})")
+            continue
+
+        checked = 0
+        valid = True
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            checked += 1
+            try:
+                item = json.loads(stripped)
+            except json.JSONDecodeError as err:
+                errors.append(f"{encoding}: jsonl parse failed at line {line_no} ({err})")
+                valid = False
+                break
+            if not isinstance(item, dict):
+                errors.append(f"{encoding}: jsonl line {line_no} is not a JSON object")
+                valid = False
+                break
+            if checked >= 25:
+                break
+
+        if valid:
+            return text, encoding
+
+    preview = "; ".join(errors[:4])
+    raise ValueError(
+        f"Unable to parse JSONL input file {path}. Tried encodings: {', '.join(TEXT_ENCODING_CANDIDATES)}. "
+        f"Sample errors: {preview}"
+    )
+
+
 def resolve_license_string(mvp_root: Path, explicit_path: str | None) -> tuple[str | None, str | None]:
     candidates: list[Path] = []
     if explicit_path:
@@ -228,7 +307,7 @@ def detect_input_array_key(input_json: Path) -> str | None:
     if input_json.suffix.lower() == ".jsonl":
         return None
     try:
-        payload = json.loads(input_json.read_text(encoding="utf-8"))
+        payload, _ = load_json_payload_with_fallback(input_json)
     except Exception:
         return None
     if isinstance(payload, list):
@@ -241,12 +320,8 @@ def detect_input_array_key(input_json: Path) -> str | None:
 
 
 def count_non_empty_lines(path: Path) -> int:
-    total = 0
-    with path.open("r", encoding="utf-8") as infile:
-        for line in infile:
-            if line.strip():
-                total += 1
-    return total
+    text, _ = load_jsonl_text_with_fallback(path)
+    return sum(1 for line in text.splitlines() if line.strip())
 
 
 def count_source_records(input_json: Path, input_array_key: str | None) -> int:
@@ -329,20 +404,22 @@ def text_from_keys(record: dict[str, object], keys: list[str]) -> str:
 
 def iter_source_records(input_json: Path, input_array_key: str | None):
     if input_json.suffix.lower() == ".jsonl":
-        with input_json.open("r", encoding="utf-8") as infile:
-            for line_no, line in enumerate(infile, start=1):
-                text = line.strip()
-                if not text:
-                    continue
-                try:
-                    payload = json.loads(text)
-                except json.JSONDecodeError as err:
-                    raise ValueError(f"Invalid JSON on line {line_no} of {input_json}: {err}") from err
-                if isinstance(payload, dict):
-                    yield payload
+        raw_text, detected_encoding = load_jsonl_text_with_fallback(input_json)
+        for line_no, line in enumerate(raw_text.splitlines(), start=1):
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError as err:
+                raise ValueError(
+                    f"Invalid JSON on line {line_no} of {input_json} (decoded as {detected_encoding}): {err}"
+                ) from err
+            if isinstance(payload, dict):
+                yield payload
         return
 
-    payload = json.loads(input_json.read_text(encoding="utf-8"))
+    payload, _ = load_json_payload_with_fallback(input_json)
     if isinstance(payload, list):
         records = payload
     elif isinstance(payload, dict):
