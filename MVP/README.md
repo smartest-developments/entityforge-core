@@ -129,3 +129,19 @@ Enable strict snapshot regression checks:
 cd MVP
 MVP_ENFORCE_REGRESSION_SNAPSHOT=1 python3 testing/run_dashboard_tests.py
 ```
+
+## Runtime failure diagnostics (production-safe)
+
+When `run_mvp_pipeline.py` fails (for example at `load_records`), run:
+
+```bash
+cd MVP
+python3 diagnose_senzing_runtime.py --runtime-dir /mnt/mvp_runtime --search-dirs /mnt,/tmp,.
+```
+
+This generates:
+- `output/diagnostics/runtime_diagnostic_<timestamp>.json`
+- `output/diagnostics/runtime_diagnostic_<timestamp>.md`
+- `output/diagnostics/runtime_diagnostic_<timestamp>.txt`
+
+The `.txt` file contains a compact copy/paste block for engineering/support escalation.
