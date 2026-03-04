@@ -20,6 +20,7 @@ from pathlib import Path
 LARGE_RUN_THRESHOLD_DEFAULT = 300_000
 LARGE_RUN_TIMEOUT_SECONDS_DEFAULT = 10_800
 LARGE_RUN_PRECHECK_MIN_FREE_GB_DEFAULT = 20.0
+LARGE_RUN_LOAD_CHUNK_SIZE_DEFAULT = 50_000
 TEXT_ENCODING_CANDIDATES = (
     "utf-8",
     "utf-8-sig",
@@ -78,6 +79,22 @@ def parse_args() -> argparse.Namespace:
         help="Disable shuffle in primary sz_file_loader attempt.",
     )
     parser.add_argument(
+        "--enable-load-chunk-fallback",
+        action="store_true",
+        help="Enable sequential chunked load fallback in E2E when standard load retries fail.",
+    )
+    parser.add_argument(
+        "--load-chunk-size",
+        type=int,
+        default=0,
+        help="Chunk size for load fallback (default: 0 = disabled).",
+    )
+    parser.add_argument(
+        "--keep-load-chunk-files",
+        action="store_true",
+        help="Keep temporary chunk JSONL files used by chunked load fallback.",
+    )
+    parser.add_argument(
         "--disable-large-run-tuning",
         action="store_true",
         help="Disable automatic tuning for large inputs.",
@@ -101,6 +118,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Minimum free disk GB required by preflight for large runs "
             f"(default: {LARGE_RUN_PRECHECK_MIN_FREE_GB_DEFAULT})."
+        ),
+    )
+    parser.add_argument(
+        "--large-run-load-chunk-size",
+        type=int,
+        default=LARGE_RUN_LOAD_CHUNK_SIZE_DEFAULT,
+        help=(
+            "Chunk size automatically enabled for large runs when chunk fallback is not explicitly set "
+            f"(default: {LARGE_RUN_LOAD_CHUNK_SIZE_DEFAULT})."
         ),
     )
     parser.add_argument(
@@ -729,6 +755,12 @@ def main() -> int:
     if args.large_run_min_free_gb <= 0:
         print("ERROR: --large-run-min-free-gb must be > 0", file=sys.stderr)
         return 2
+    if args.load_chunk_size < 0:
+        print("ERROR: --load-chunk-size must be >= 0", file=sys.stderr)
+        return 2
+    if args.large_run_load_chunk_size <= 0:
+        print("ERROR: --large-run-load-chunk-size must be > 0", file=sys.stderr)
+        return 2
 
     mvp_root = Path(__file__).resolve().parent
     input_json = Path(args.input_json).expanduser().resolve()
@@ -781,6 +813,9 @@ def main() -> int:
     effective_snapshot_threads = args.snapshot_threads
     effective_snapshot_fallback_threads = args.snapshot_fallback_threads
     effective_load_no_shuffle_primary = bool(args.load_no_shuffle_primary)
+    effective_enable_load_chunk_fallback = bool(args.enable_load_chunk_fallback)
+    effective_load_chunk_size = args.load_chunk_size
+    effective_keep_load_chunk_files = bool(args.keep_load_chunk_files)
     large_run_tuning_applied = False
     effective_stream_export = bool(args.stream_export)
 
@@ -793,6 +828,10 @@ def main() -> int:
         effective_snapshot_fallback_threads = 1
         effective_load_no_shuffle_primary = True
         effective_stream_export = True
+        # Self-healing fallback for heavy runs: keep all records, retry load in sequential chunks if needed.
+        effective_enable_load_chunk_fallback = True
+        if effective_load_chunk_size <= 0:
+            effective_load_chunk_size = args.large_run_load_chunk_size
 
     disk_snapshot = collect_disk_space_snapshot([runtime_dir, output_root, output_run_dir, mvp_root])
     min_free_disk_gb = min(item["free_gb"] for item in disk_snapshot.values())
@@ -855,6 +894,9 @@ def main() -> int:
         "effective_snapshot_threads": effective_snapshot_threads,
         "effective_snapshot_fallback_threads": effective_snapshot_fallback_threads,
         "effective_load_no_shuffle_primary": effective_load_no_shuffle_primary,
+        "effective_enable_load_chunk_fallback": effective_enable_load_chunk_fallback,
+        "effective_load_chunk_size": effective_load_chunk_size,
+        "effective_keep_load_chunk_files": effective_keep_load_chunk_files,
         "effective_stream_export": effective_stream_export,
         "with_snapshot": bool(args.with_snapshot),
         "with_why": bool(args.with_why),
@@ -985,6 +1027,12 @@ def main() -> int:
         e2e_cmd.append("--keep-loader-temp-files")
     if effective_load_no_shuffle_primary:
         e2e_cmd.append("--load-no-shuffle-primary")
+    if effective_enable_load_chunk_fallback:
+        e2e_cmd.append("--enable-load-chunk-fallback")
+        if effective_load_chunk_size > 0:
+            e2e_cmd.extend(["--load-chunk-size", str(effective_load_chunk_size)])
+    if effective_keep_load_chunk_files:
+        e2e_cmd.append("--keep-load-chunk-files")
     if effective_stream_export:
         e2e_cmd.append("--stream-export")
 
@@ -1001,7 +1049,10 @@ def main() -> int:
         print(
             "Large-run tuning: enabled "
             f"(timeout={effective_step_timeout_seconds}s, load_threads={effective_load_threads}, "
-            f"snapshot_threads={effective_snapshot_threads}, load_no_shuffle_primary={effective_load_no_shuffle_primary})"
+            f"snapshot_threads={effective_snapshot_threads}, "
+            f"load_no_shuffle_primary={effective_load_no_shuffle_primary}, "
+            f"load_chunk_fallback={effective_enable_load_chunk_fallback}, "
+            f"load_chunk_size={effective_load_chunk_size})"
         )
     print(f"Stream export enabled: {effective_stream_export}")
     if execution_mode == "local" and docker_note != "docker ready":

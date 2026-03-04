@@ -145,3 +145,23 @@ This generates:
 - `output/diagnostics/runtime_diagnostic_<timestamp>.txt`
 
 The `.txt` file contains a compact copy/paste block for engineering/support escalation.
+
+### One-command production run + diagnostics
+
+Use this wrapper when operators must avoid manual troubleshooting steps:
+
+```bash
+cd MVP
+python3 run_mvp_with_auto_diagnosis.py \
+  --input-json /mnt/Senzing-Ready.json \
+  --senzing-env /opt/senzing/er/resources/templates/setupEnv \
+  --runtime-dir /mnt/mvp_runtime
+```
+
+This command:
+1. Runs `run_mvp_pipeline.py` with conservative load settings.
+2. If standard load retries fail, automatically enables sequential chunked load fallback (no record removal).
+3. If the run still fails, automatically runs `diagnose_senzing_runtime.py`.
+4. Prints a compact `COPY THIS BLOCK` summary for escalation.
+
+By default it does **not** remove or filter records.
