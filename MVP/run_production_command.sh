@@ -2,7 +2,16 @@
 set -euo pipefail
 
 # Production one-command run (pipeline + auto recovery + diagnostics on failure)
+# Stable profile for current production environment:
+# - single-thread load
+# - very small chunk fallback (500)
+# - core dumps disabled for cleaner operations
+ulimit -c 0 || true
+
 python3 run_mvp_with_auto_diagnosis.py \
   --input-json /mnt/Senzing-Ready.json \
   --senzing-env /opt/senzing/er/resources/templates/setupEnv \
-  --runtime-dir /mnt/mvp_runtime
+  --runtime-dir /mnt/mvp_runtime \
+  --load-threads 1 \
+  --load-fallback-threads 1 \
+  --load-chunk-size 500
