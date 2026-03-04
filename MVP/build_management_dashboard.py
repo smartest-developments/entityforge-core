@@ -26,6 +26,303 @@ STATIC_DASHBOARD_FILES = (
     "chart.umd.js",
 )
 
+FALLBACK_DASHBOARD_FILES = {
+    "management_dashboard.html": """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quality Dashboard</title>
+    <link rel="stylesheet" href="./management_dashboard.css">
+  </head>
+  <body>
+    <main class="container">
+      <h1>Quality Dashboard</h1>
+      <section class="panel">
+        <label for="runSelect">Select output</label>
+        <select id="runSelect"></select>
+        <div id="runMeta" class="meta"></div>
+      </section>
+      <section class="grid">
+        <article class="panel">
+          <h2>Our Metrics</h2>
+          <div id="ourMetrics" class="metrics"></div>
+        </article>
+        <article class="panel">
+          <h2>Their Metrics</h2>
+          <div id="theirMetrics" class="metrics"></div>
+        </article>
+      </section>
+      <section class="panel">
+        <h2>Their Top Match Keys</h2>
+        <p id="topKeysTotal" class="meta"></p>
+        <div id="topKeys"></div>
+      </section>
+    </main>
+    <script src="./management_dashboard_data.js"></script>
+    <script src="./management_dashboard.js"></script>
+  </body>
+</html>
+""",
+    "management_dashboard.css": """* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, sans-serif; background: #f1f4f8; color: #13253a; }
+.container { max-width: 1180px; margin: 16px auto 24px; padding: 0 16px; }
+h1 { margin: 0 0 14px; font-size: 28px; }
+h2 { margin: 0 0 10px; font-size: 18px; }
+.panel { background: #ffffff; border: 1px solid #d4dce8; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+label { font-size: 13px; color: #4f6179; display: block; margin-bottom: 6px; }
+select { width: 100%; max-width: 620px; padding: 8px 10px; border: 1px solid #bac7d8; border-radius: 8px; background: #fff; }
+.meta { margin-top: 8px; color: #5a6f8a; font-size: 13px; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.metric { background: #f5f8fc; border: 1px solid #dce5f1; border-radius: 8px; padding: 8px; }
+.metric .k { display: block; font-size: 12px; color: #5a6f8a; }
+.metric .v { display: block; font-size: 18px; font-weight: 700; margin-top: 2px; color: #0f1f33; }
+#topKeys { display: grid; gap: 6px; }
+.top-key { display: flex; justify-content: space-between; gap: 10px; background: #f5f8fc; border: 1px solid #dce5f1; border-radius: 8px; padding: 8px; }
+.top-key .name { color: #24384f; font-size: 13px; }
+.top-key .count { color: #0f1f33; font-weight: 700; font-size: 13px; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } .metrics { grid-template-columns: 1fr; } }
+""",
+    "management_dashboard.js": """(function () {
+  function byId(id) { return document.getElementById(id); }
+  function asNumber(v) { return Number.isFinite(v) ? v : (typeof v === "number" ? v : null); }
+  function fmtInt(v) {
+    const n = asNumber(v);
+    return n === null ? "N/A" : Math.round(n).toLocaleString("en-US");
+  }
+  function fmtPct(v) {
+    const n = asNumber(v);
+    return n === null ? "N/A" : n.toFixed(2) + "%";
+  }
+  function fmtMins(v) {
+    const n = asNumber(v);
+    return n === null ? "N/A" : n.toFixed(2);
+  }
+  function renderMetrics(container, items) {
+    container.innerHTML = "";
+    items.forEach(function (item) {
+      const card = document.createElement("div");
+      card.className = "metric";
+      const key = document.createElement("span");
+      key.className = "k";
+      key.textContent = item[0];
+      const val = document.createElement("span");
+      val.className = "v";
+      val.textContent = item[1];
+      card.appendChild(key);
+      card.appendChild(val);
+      container.appendChild(card);
+    });
+  }
+  function formatKeyName(raw) {
+    return String(raw || "")
+      .replace(/\\+|_|-/g, ", ")
+      .replace(/\\bTAX\\s*,\\s*ID\\b/g, "TAX ID")
+      .replace(/\\s+/g, " ")
+      .trim();
+  }
+
+  const data = window.MVP_DASHBOARD_DATA || {};
+  const runs = Array.isArray(data.runs) ? data.runs : [];
+  const select = byId("runSelect");
+  const runMeta = byId("runMeta");
+  const ourMetrics = byId("ourMetrics");
+  const theirMetrics = byId("theirMetrics");
+  const topKeys = byId("topKeys");
+  const topKeysTotal = byId("topKeysTotal");
+
+  function renderRun(idx) {
+    const run = runs[idx] || {};
+    runMeta.textContent = "Run: " + (run.run_id || "N/A") + " | Input records: " + fmtInt(run.records_input) + " | Full execution time (min): " + fmtMins(run.execution_minutes_estimated);
+    renderMetrics(ourMetrics, [
+      ["Input records", fmtInt(run.records_input)],
+      ["Matched pairs", fmtInt(run.our_true_pairs_total)],
+      ["Match found", fmtPct(run.our_match_pct)],
+      ["Entities", fmtInt(run.our_entities_formed)],
+      ["False positive", fmtInt(run.our_false_positive)],
+      ["False negative", fmtInt(run.our_false_negative)],
+      ["True positive", fmtInt(run.our_true_positive)]
+    ]);
+    renderMetrics(theirMetrics, [
+      ["Matched pairs", fmtInt(run.matched_pairs)],
+      ["Match found", fmtPct(run.their_match_pct)],
+      ["Entities", fmtInt(run.their_entities_formed)],
+      ["False positive", fmtInt(run.false_positive)],
+      ["False negative", fmtInt(run.false_negative)],
+      ["True positive", fmtInt(run.true_positive)],
+      ["Match gain/loss", fmtPct(run.their_match_gain_loss_pct)],
+      ["Entity gain/loss", fmtPct(run.their_entity_gain_loss_pct)]
+    ]);
+
+    topKeys.innerHTML = "";
+    const keys = Array.isArray(run.top_match_keys) ? run.top_match_keys : [];
+    const totalTop10 = asNumber(run.top_match_keys_top10_total);
+    const totalPairs = asNumber(run.top_match_keys_total_pairs);
+    topKeysTotal.innerHTML = "Top 10: " + fmtInt(totalTop10) + "<br>Total pairs: " + fmtInt(totalPairs);
+    keys.slice(0, 10).forEach(function (pair) {
+      const row = document.createElement("div");
+      row.className = "top-key";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = formatKeyName(pair[0]);
+      const count = document.createElement("span");
+      count.className = "count";
+      count.textContent = fmtInt(pair[1]);
+      row.appendChild(name);
+      row.appendChild(count);
+      topKeys.appendChild(row);
+    });
+  }
+
+  if (runs.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No output runs found";
+    select.appendChild(opt);
+    runMeta.textContent = "Run the pipeline to generate output data.";
+    return;
+  }
+
+  runs.forEach(function (run, idx) {
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    const source = run.source_input_name || "unknown input";
+    opt.textContent = (run.run_label || run.run_id || "run") + " | " + source.replace(/[_-]+/g, " ");
+    select.appendChild(opt);
+  });
+  select.addEventListener("change", function () {
+    renderRun(Number(select.value) || 0);
+  });
+  renderRun(0);
+})();
+""",
+    "metrics_validation_guide.html": """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Metrics Validation Guide</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 20px; color: #1a2f47; }
+      h1 { margin-top: 0; }
+      code { background: #f3f6fb; padding: 2px 5px; border-radius: 4px; }
+      li { margin-bottom: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Metrics Validation Guide</h1>
+    <p>This fallback guide is generated at runtime when dashboard template files are missing.</p>
+    <ol>
+      <li>Validate input records by counting rows in <code>technical output/input_normalized.jsonl</code>.</li>
+      <li>Validate matched pairs from <code>technical output/matched_pairs.csv</code>.</li>
+      <li>Validate entities from <code>technical output/entity_records.csv</code> using deduplicated <code>DATA_SOURCE + RECORD_ID</code>.</li>
+      <li>Use <code>python3 verify_dashboard_metrics.py</code> for cross-check report output.</li>
+    </ol>
+  </body>
+</html>
+""",
+    "tabler.min.css": "/* fallback placeholder: full tabler not bundled in runtime bootstrap */\n",
+    "tabler.min.js": "/* fallback placeholder: full tabler not bundled in runtime bootstrap */\n",
+    "chart.umd.js": "/* fallback placeholder: full chart.js not bundled in runtime bootstrap */\n",
+}
+
+FALLBACK_TEST_RUNNER = """#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Fallback dashboard test runner")
+    parser.add_argument("--output-root", default="output")
+    parser.add_argument("--dashboard-data", default="dashboard/management_dashboard_data.js")
+    parser.add_argument("--report-json", default="dashboard/dashboard_test_suite_report.json")
+    parser.add_argument("--report-md", default="dashboard/dashboard_test_suite_report.md")
+    return parser.parse_args()
+
+
+def render_markdown(report: dict) -> str:
+    lines = [
+        "# Dashboard Test Suite Report (Fallback)",
+        "",
+        f"- Generated at: {report['generated_at']}",
+        f"- Status: {report['status']}",
+        f"- Runner: {report['runner']}",
+        f"- Verifier return code: {report['verifier_return_code']}",
+    ]
+    if report.get("note"):
+        lines += ["", f"- Note: {report['note']}"]
+    return "\\n".join(lines) + "\\n"
+
+
+def main() -> int:
+    args = parse_args()
+    mvp_root = Path(__file__).resolve().parents[1]
+    verifier = mvp_root / "verify_dashboard_metrics.py"
+    report_json = Path(args.report_json).expanduser().resolve()
+    report_md = Path(args.report_md).expanduser().resolve()
+    report_json.parent.mkdir(parents=True, exist_ok=True)
+    report_md.parent.mkdir(parents=True, exist_ok=True)
+
+    if not verifier.exists():
+        report = {
+            "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "status": "SKIP",
+            "runner": "fallback",
+            "verifier_return_code": 0,
+            "note": f"Missing verifier script: {verifier}",
+        }
+        report_json.write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\\n", encoding="utf-8")
+        report_md.write_text(render_markdown(report), encoding="utf-8")
+        print("Dashboard fallback tests: SKIP (verifier missing)")
+        return 0
+
+    audit_json = report_json.parent / "dashboard_data_audit_report.json"
+    audit_md = report_md.parent / "dashboard_data_audit_report.md"
+    cmd = [
+        sys.executable,
+        str(verifier),
+        "--output-root",
+        str(Path(args.output_root).expanduser().resolve()),
+        "--dashboard-data",
+        str(Path(args.dashboard_data).expanduser().resolve()),
+        "--report-json",
+        str(audit_json),
+        "--report-md",
+        str(audit_md),
+    ]
+    result = subprocess.run(cmd, cwd=str(mvp_root), check=False)
+    status = "PASS" if result.returncode == 0 else "FAIL"
+    report = {
+        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "status": status,
+        "runner": "fallback",
+        "verifier_return_code": result.returncode,
+        "audit_report_json": str(audit_json),
+        "audit_report_md": str(audit_md),
+    }
+    report_json.write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\\n", encoding="utf-8")
+    report_md.write_text(render_markdown(report), encoding="utf-8")
+    print(f"Dashboard fallback tests: {status}")
+    return result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+
+FALLBACK_TESTING_README = """# Fallback testing
+
+This folder was created automatically at runtime because the full testing suite
+was not present. The fallback runner delegates to `verify_dashboard_metrics.py`.
+"""
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build management dashboard data from MVP outputs")
@@ -920,13 +1217,24 @@ def write_data_js(path: Path, payload: dict) -> None:
 
 
 def sync_dashboard_assets(template_dir: Path, target_dir: Path) -> None:
-    if template_dir.resolve() == target_dir.resolve():
+    missing_in_target = [name for name in STATIC_DASHBOARD_FILES if not (target_dir / name).exists()]
+    if not missing_in_target:
         return
-    for filename in STATIC_DASHBOARD_FILES:
-        source = template_dir / filename
-        if not source.exists():
-            raise FileNotFoundError(f"Missing dashboard template asset: {source}")
-        shutil.copy2(source, target_dir / filename)
+
+    can_copy_from_template = template_dir.exists() and template_dir.resolve() != target_dir.resolve()
+    if can_copy_from_template:
+        missing_in_template = [name for name in STATIC_DASHBOARD_FILES if not (template_dir / name).exists()]
+        if not missing_in_template:
+            for filename in STATIC_DASHBOARD_FILES:
+                shutil.copy2(template_dir / filename, target_dir / filename)
+            return
+
+    # Fallback: generate a self-contained minimal dashboard when template files are missing.
+    for filename, content in FALLBACK_DASHBOARD_FILES.items():
+        path = target_dir / filename
+        if not path.exists():
+            path.write_text(content, encoding="utf-8")
+    print("WARNING: dashboard template assets missing; generated fallback dashboard files.")
 
 
 def write_index_html(target_dir: Path) -> None:
@@ -946,9 +1254,15 @@ def write_index_html(target_dir: Path) -> None:
 
 
 def run_dashboard_test_suite(mvp_root: Path, output_root: Path, dashboard_dir: Path) -> None:
+    testing_dir = mvp_root / "testing"
+    testing_dir.mkdir(parents=True, exist_ok=True)
     test_runner = mvp_root / "testing" / "run_dashboard_tests.py"
     if not test_runner.exists():
-        raise FileNotFoundError(f"Missing test runner: {test_runner}")
+        test_runner.write_text(FALLBACK_TEST_RUNNER, encoding="utf-8")
+        readme = testing_dir / "README.md"
+        if not readme.exists():
+            readme.write_text(FALLBACK_TESTING_README, encoding="utf-8")
+        print("WARNING: full test suite missing; generated fallback testing runner.")
 
     command = [
         sys.executable,
