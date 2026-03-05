@@ -145,9 +145,17 @@
       return false;
     }
     const inputRecords = asNumber(run.records_input);
+    const ourEntities = asNumber(run.our_entities_formed) ?? asNumber(run.our_resolved_entities);
+    const theirEntities = asNumber(run.their_entities_formed) ?? asNumber(run.resolved_entities);
     const ourMatchPct = asNumber(run.our_match_pct);
     const theirMatchPct = asNumber(run.their_match_pct);
-    return typeof inputRecords === 'number' && (typeof ourMatchPct === 'number' || typeof theirMatchPct === 'number');
+    return (
+      typeof inputRecords === 'number' &&
+      (typeof ourMatchPct === 'number' ||
+        typeof theirMatchPct === 'number' ||
+        typeof ourEntities === 'number' ||
+        typeof theirEntities === 'number')
+    );
   }
 
   function getRenderableRuns() {
@@ -155,8 +163,12 @@
   }
 
   function getRun() {
-    const runs = getRenderableRuns();
-    return runs.length ? runs[0] : null;
+    const renderable = getRenderableRuns();
+    if (renderable.length) {
+      return renderable[0];
+    }
+    const all = getAllRuns();
+    return all.length ? all[0] : null;
   }
 
 
@@ -497,7 +509,7 @@
   }
 
   function boot() {
-    if (!getRenderableRuns().length) {
+    if (!getAllRuns().length) {
       renderEmptyState();
       return;
     }

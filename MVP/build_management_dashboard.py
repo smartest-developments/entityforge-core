@@ -991,8 +991,13 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
     their_entity_gain_loss_pct = pct(safe_ratio(-entity_count_delta, records_input)) if entity_count_delta is not None else None
 
     artifact_entries: list[dict[str, object]] = []
+    artifact_total_files = 0
+    artifact_limit = 200
     for file_path in sorted(path for path in run_dir.rglob("*") if path.is_file()):
         if any(part.startswith(".") for part in file_path.relative_to(run_dir).parts):
+            continue
+        artifact_total_files += 1
+        if len(artifact_entries) >= artifact_limit:
             continue
         rel = file_path.relative_to(output_root)
         artifact_entries.append(
@@ -1121,6 +1126,8 @@ def collect_run_record(output_root: Path, run_dir: Path) -> dict:
             "execution_mode": mapping_summary.get("execution_mode"),
         },
         "artifacts": artifact_entries,
+        "artifacts_truncated": artifact_total_files > artifact_limit,
+        "artifacts_total_files": artifact_total_files,
         "validation": build_validation_summary(
             run_dir=run_dir,
             technical_dir=technical_dir,
@@ -1216,6 +1223,134 @@ def write_data_js(path: Path, payload: dict) -> None:
     path.write_text(js, encoding="utf-8")
 
 
+def write_data_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def is_scalar_value(value: object) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def scalar_to_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as outfile:
+        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({name: scalar_to_text(row.get(name)) for name in fieldnames})
+
+
+def write_dashboard_flat_exports(dashboard_dir: Path, payload: dict) -> None:
+    runs = payload.get("runs") if isinstance(payload.get("runs"), list) else []
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+
+    # 1) Full payload JSON for non-UI consumption.
+    write_data_json(dashboard_dir / "management_dashboard_data.json", payload)
+
+    # 2) One-row summary CSV.
+    summary_fields = ["generated_at"]
+    summary_row: dict[str, object] = {"generated_at": payload.get("generated_at")}
+    for key in sorted(summary.keys()):
+        if not is_scalar_value(summary.get(key)):
+            continue
+        summary_fields.append(key)
+        summary_row[key] = summary.get(key)
+    write_csv(dashboard_dir / "management_dashboard_summary.csv", summary_fields, [summary_row])
+
+    # 3) Per-run scalar metrics CSV.
+    run_columns: set[str] = set()
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        for key, value in run.items():
+            if is_scalar_value(value):
+                run_columns.add(key)
+    ordered_run_columns = ["run_id", "run_timestamp", "run_status", "run_label", "source_input_name"]
+    for key in sorted(run_columns):
+        if key not in ordered_run_columns:
+            ordered_run_columns.append(key)
+
+    run_rows: list[dict[str, object]] = []
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        row = {key: run.get(key) for key in ordered_run_columns}
+        run_rows.append(row)
+    write_csv(dashboard_dir / "management_dashboard_runs.csv", ordered_run_columns, run_rows)
+
+    # 4) Top match keys in flat CSV.
+    top_key_rows: list[dict[str, object]] = []
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_id = run.get("run_id")
+        top_keys = run.get("top_match_keys")
+        if not isinstance(top_keys, list):
+            continue
+        for index, item in enumerate(top_keys, start=1):
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            key = item[0]
+            count = item[1]
+            top_key_rows.append(
+                {
+                    "run_id": run_id,
+                    "rank": index,
+                    "match_key": key,
+                    "pair_count": count if isinstance(count, int) else None,
+                    "top10_pairs_total": run.get("top_match_keys_top10_total"),
+                    "all_pairs_total": run.get("top_match_keys_total_pairs"),
+                }
+            )
+    write_csv(
+        dashboard_dir / "management_dashboard_top_match_keys.csv",
+        ["run_id", "rank", "match_key", "pair_count", "top10_pairs_total", "all_pairs_total"],
+        top_key_rows,
+    )
+
+    # 5) Entity size distributions in flat CSV (our vs their).
+    dist_rows: list[dict[str, object]] = []
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_id = run.get("run_id")
+        for source_label, field_name in [
+            ("our", "our_entity_size_distribution"),
+            ("their", "entity_size_distribution"),
+        ]:
+            distribution = run.get(field_name)
+            if not isinstance(distribution, dict):
+                continue
+            for size_key, value in distribution.items():
+                try:
+                    entity_size = int(size_key)
+                except Exception:
+                    continue
+                if not isinstance(value, int):
+                    continue
+                dist_rows.append(
+                    {
+                        "run_id": run_id,
+                        "source": source_label,
+                        "entity_size": entity_size,
+                        "entity_count": value,
+                    }
+                )
+    write_csv(
+        dashboard_dir / "management_dashboard_entity_size_distribution.csv",
+        ["run_id", "source", "entity_size", "entity_count"],
+        dist_rows,
+    )
+
+
 def has_complete_dashboard_assets(path: Path) -> bool:
     if not path.exists() or not path.is_dir():
         return False
@@ -1246,6 +1381,10 @@ def sync_dashboard_assets(template_dir: Path | None, target_dir: Path) -> None:
         # Always refresh to avoid stale fallback UI files in target directory.
         for filename in STATIC_DASHBOARD_FILES:
             shutil.copy2(template_dir / filename, target_dir / filename)
+        return
+
+    # If target already has full assets, keep them.
+    if has_complete_dashboard_assets(target_dir):
         return
 
     # Fallback: generate a self-contained minimal dashboard when template files are missing.
@@ -1341,7 +1480,10 @@ def main() -> int:
     }
 
     write_data_js(data_js_path, payload)
+    write_dashboard_flat_exports(dashboard_dir=dashboard_dir, payload=payload)
     print(f"Dashboard data generated: {data_js_path}")
+    print(f"Dashboard data JSON: {dashboard_dir / 'management_dashboard_data.json'}")
+    print(f"Dashboard runs CSV: {dashboard_dir / 'management_dashboard_runs.csv'}")
     print(f"Runs indexed: {len(runs)}")
     print(f"Dashboard directory: {dashboard_dir}")
 
