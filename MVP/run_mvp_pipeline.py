@@ -21,6 +21,7 @@ LARGE_RUN_THRESHOLD_DEFAULT = 300_000
 LARGE_RUN_TIMEOUT_SECONDS_DEFAULT = 10_800
 LARGE_RUN_PRECHECK_MIN_FREE_GB_DEFAULT = 20.0
 LARGE_RUN_LOAD_CHUNK_SIZE_DEFAULT = 50_000
+LARGE_RUN_LOAD_BATCH_SIZE_DEFAULT = 100_000
 TEXT_ENCODING_CANDIDATES = (
     "utf-8",
     "utf-8-sig",
@@ -95,6 +96,20 @@ def parse_args() -> argparse.Namespace:
         help="Keep temporary chunk JSONL files used by chunked load fallback.",
     )
     parser.add_argument(
+        "--load-batch-size",
+        type=int,
+        default=0,
+        help=(
+            "Optional proactive load batching size (records per batch). "
+            "When > 0, E2E loads input JSONL one batch at a time."
+        ),
+    )
+    parser.add_argument(
+        "--keep-load-batch-files",
+        action="store_true",
+        help="Keep temporary JSONL files generated for proactive load batches.",
+    )
+    parser.add_argument(
         "--disable-large-run-tuning",
         action="store_true",
         help="Disable automatic tuning for large inputs.",
@@ -127,6 +142,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Chunk size automatically enabled for large runs when chunk fallback is not explicitly set "
             f"(default: {LARGE_RUN_LOAD_CHUNK_SIZE_DEFAULT})."
+        ),
+    )
+    parser.add_argument(
+        "--large-run-load-batch-size",
+        type=int,
+        default=LARGE_RUN_LOAD_BATCH_SIZE_DEFAULT,
+        help=(
+            "Batch size automatically enabled for large runs when proactive load batching is not explicitly set "
+            f"(default: {LARGE_RUN_LOAD_BATCH_SIZE_DEFAULT})."
         ),
     )
     parser.add_argument(
@@ -758,8 +782,14 @@ def main() -> int:
     if args.load_chunk_size < 0:
         print("ERROR: --load-chunk-size must be >= 0", file=sys.stderr)
         return 2
+    if args.load_batch_size < 0:
+        print("ERROR: --load-batch-size must be >= 0", file=sys.stderr)
+        return 2
     if args.large_run_load_chunk_size <= 0:
         print("ERROR: --large-run-load-chunk-size must be > 0", file=sys.stderr)
+        return 2
+    if args.large_run_load_batch_size <= 0:
+        print("ERROR: --large-run-load-batch-size must be > 0", file=sys.stderr)
         return 2
 
     mvp_root = Path(__file__).resolve().parent
@@ -816,6 +846,8 @@ def main() -> int:
     effective_enable_load_chunk_fallback = bool(args.enable_load_chunk_fallback)
     effective_load_chunk_size = args.load_chunk_size
     effective_keep_load_chunk_files = bool(args.keep_load_chunk_files)
+    effective_load_batch_size = args.load_batch_size
+    effective_keep_load_batch_files = bool(args.keep_load_batch_files)
     large_run_tuning_applied = False
     effective_stream_export = bool(args.stream_export)
 
@@ -832,6 +864,8 @@ def main() -> int:
         effective_enable_load_chunk_fallback = True
         if effective_load_chunk_size <= 0:
             effective_load_chunk_size = args.large_run_load_chunk_size
+        if effective_load_batch_size <= 0:
+            effective_load_batch_size = args.large_run_load_batch_size
 
     disk_snapshot = collect_disk_space_snapshot([runtime_dir, output_root, output_run_dir, mvp_root])
     min_free_disk_gb = min(item["free_gb"] for item in disk_snapshot.values())
@@ -897,6 +931,8 @@ def main() -> int:
         "effective_enable_load_chunk_fallback": effective_enable_load_chunk_fallback,
         "effective_load_chunk_size": effective_load_chunk_size,
         "effective_keep_load_chunk_files": effective_keep_load_chunk_files,
+        "effective_load_batch_size": effective_load_batch_size,
+        "effective_keep_load_batch_files": effective_keep_load_batch_files,
         "effective_stream_export": effective_stream_export,
         "with_snapshot": bool(args.with_snapshot),
         "with_why": bool(args.with_why),
@@ -1033,6 +1069,10 @@ def main() -> int:
             e2e_cmd.extend(["--load-chunk-size", str(effective_load_chunk_size)])
     if effective_keep_load_chunk_files:
         e2e_cmd.append("--keep-load-chunk-files")
+    if effective_load_batch_size > 0:
+        e2e_cmd.extend(["--load-batch-size", str(effective_load_batch_size)])
+    if effective_keep_load_batch_files:
+        e2e_cmd.append("--keep-load-batch-files")
     if effective_stream_export:
         e2e_cmd.append("--stream-export")
 
@@ -1052,7 +1092,8 @@ def main() -> int:
             f"snapshot_threads={effective_snapshot_threads}, "
             f"load_no_shuffle_primary={effective_load_no_shuffle_primary}, "
             f"load_chunk_fallback={effective_enable_load_chunk_fallback}, "
-            f"load_chunk_size={effective_load_chunk_size})"
+            f"load_chunk_size={effective_load_chunk_size}, "
+            f"load_batch_size={effective_load_batch_size})"
         )
     print(f"Stream export enabled: {effective_stream_export}")
     if execution_mode == "local" and docker_note != "docker ready":

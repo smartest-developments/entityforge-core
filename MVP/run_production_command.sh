@@ -4,6 +4,7 @@ set -euo pipefail
 # Production one-command run (pipeline + auto recovery + diagnostics on failure)
 # Stable profile for current production environment:
 # - single-thread load
+# - proactive batching (100k records per batch)
 # - ultra-small chunk fallback (100)
 # - keep chunk files for post-failure pinpoint analysis
 # - core dumps disabled for cleaner operations
@@ -15,5 +16,7 @@ python3 run_mvp_with_auto_diagnosis.py \
   --runtime-dir /mnt/mvp_runtime \
   --load-threads 1 \
   --load-fallback-threads 1 \
+  --load-batch-size 100000 \
+  --keep-load-batch-files \
   --load-chunk-size 100 \
   --keep-load-chunk-files
