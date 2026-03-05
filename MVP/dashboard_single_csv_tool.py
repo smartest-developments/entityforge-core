@@ -196,55 +196,6 @@ def build_payload_from_bundle(sections: dict[str, list[dict[str, Any]]]) -> dict
         else:
             run_map[run_id]["entity_size_distribution"][str(entity_size)] = entity_count
 
-    # Fallback for missing "their" distribution in bundle:
-    # build a conservative synthetic 1-size + 2-size mix matching known totals.
-    # This avoids empty chart when bundle was exported without "their" entity_size rows.
-    for run in runs:
-        if not isinstance(run, dict):
-            continue
-        their_dist = run.get("entity_size_distribution")
-        if isinstance(their_dist, dict) and len(their_dist) > 0:
-            continue
-        records_input = run.get("records_input")
-        grouped_members = run.get("their_grouped_members")
-        entities_total = run.get("their_entities_formed") or run.get("resolved_entities")
-        if not isinstance(records_input, int) or not isinstance(grouped_members, int) or not isinstance(entities_total, int):
-            continue
-        if records_input < 0 or grouped_members < 0 or entities_total < 0:
-            continue
-
-        singletons = max(0, records_input - grouped_members)
-        non_single_entities = max(0, entities_total - singletons)
-        synthesized: dict[str, int] = {}
-        if singletons > 0:
-            synthesized["1"] = singletons
-
-        if non_single_entities > 0 and grouped_members > 0:
-            # Use a consistent two-point approximation around average non-single size.
-            avg_size = grouped_members / non_single_entities
-            low = max(2, int(avg_size))
-            high = max(low, low + 1 if avg_size > low else low)
-            if high == low:
-                synthesized[str(low)] = synthesized.get(str(low), 0) + non_single_entities
-            else:
-                # Solve:
-                # a + b = non_single_entities
-                # a*low + b*high = grouped_members
-                # b = (grouped_members - low*non_single_entities) / (high-low)
-                num = grouped_members - (low * non_single_entities)
-                den = (high - low)
-                b = int(round(num / den)) if den != 0 else 0
-                b = max(0, min(non_single_entities, b))
-                a = non_single_entities - b
-                if a > 0:
-                    synthesized[str(low)] = synthesized.get(str(low), 0) + a
-                if b > 0:
-                    synthesized[str(high)] = synthesized.get(str(high), 0) + b
-
-        if synthesized:
-            run["entity_size_distribution"] = synthesized
-            run["their_entity_size_distribution_is_estimated"] = True
-
     summary = summary_rows[0] if summary_rows else {
         "runs_total": len(runs),
         "successful_runs": sum(1 for run in runs if run.get("run_status") == "success"),
