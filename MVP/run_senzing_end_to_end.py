@@ -24,6 +24,7 @@ import datetime as dt
 import itertools
 import json
 import os
+import shutil
 import shlex
 import subprocess
 import sys
@@ -828,6 +829,28 @@ def parse_args() -> argparse.Namespace:
         "--keep-load-batch-files",
         action="store_true",
         help="Keep temporary JSONL files generated for proactive load batches.",
+    )
+    parser.add_argument(
+        "--continue-on-failed-file",
+        action="store_true",
+        help=(
+            "When proactive file split is enabled, continue loading next files even if one file fails. "
+            "Failed files are quarantined for later replay."
+        ),
+    )
+    parser.add_argument(
+        "--max-failed-files",
+        type=int,
+        default=0,
+        help=(
+            "Maximum number of failed split files allowed before aborting the run "
+            "(default: 0 = unlimited when --continue-on-failed-file is enabled)."
+        ),
+    )
+    parser.add_argument(
+        "--failed-files-output-dir",
+        default="failed_files",
+        help="Run-relative directory where failed split files are copied (default: failed_files).",
     )
     parser.add_argument(
         "--snapshot-threads",
@@ -2298,6 +2321,9 @@ def main() -> int:
     if args.load_batch_size < 0:
         print("ERROR: --load-batch-size must be >= 0", file=sys.stderr)
         return 2
+    if args.max_failed_files < 0:
+        print("ERROR: --max-failed-files must be >= 0", file=sys.stderr)
+        return 2
     if args.snapshot_threads <= 0 or args.snapshot_fallback_threads <= 0:
         print("ERROR: --snapshot-threads and --snapshot-fallback-threads must be > 0", file=sys.stderr)
         return 2
@@ -2464,7 +2490,12 @@ def main() -> int:
     load_ok = False
     load_batch_count = 0
     load_batch_records_total = 0
+    load_batch_success_count = 0
+    load_batch_failure_count = 0
     load_batches_dir = run_dir / "load_batches"
+    failed_files_dir = run_dir / args.failed_files_output_dir
+    failed_files_summary_json = run_dir / "failed_files_summary.json"
+    failed_file_entries: list[dict[str, Any]] = []
 
     if args.load_batch_size > 0:
         expected_files = (records_input_count + args.load_batch_size - 1) // args.load_batch_size
@@ -2479,6 +2510,7 @@ def main() -> int:
         batch_records = 0
         batch_index = 0
         batch_failed = False
+        abort_due_to_failed_limit = False
         next_row_index = 1
 
         def process_batch_file(
@@ -2488,10 +2520,12 @@ def main() -> int:
             row_start: int,
             row_end: int,
         ) -> bool:
+            nonlocal load_batch_count, load_batch_success_count, load_batch_failure_count, abort_due_to_failed_limit
             print(
                 f"[LOAD] Starting file {current_batch_index}/{expected_files} "
                 f"(rows {row_start:,}-{row_end:,}, {current_batch_records} records): {current_batch_file.name}"
             )
+            started_at = time.time()
             batch_ok, batch_steps, batch_warnings, removed = run_load_attempts_for_file(
                 project_setup_env=project_setup_env,
                 load_input_jsonl=current_batch_file,
@@ -2514,13 +2548,14 @@ def main() -> int:
             steps.extend(batch_steps)
             runtime_warnings.extend(batch_warnings)
             loader_temp_files_removed.extend(removed)
-            nonlocal load_batch_count
+            elapsed_seconds = round(time.time() - started_at, 1)
             load_batch_count += 1
 
             if batch_ok:
+                load_batch_success_count += 1
                 print(
                     f"[LOAD] Loaded file {current_batch_index}/{expected_files} successfully "
-                    f"(rows {row_start:,}-{row_end:,})"
+                    f"(rows {row_start:,}-{row_end:,}) in {elapsed_seconds:.1f} seconds"
                 )
                 if (not args.keep_load_batch_files) and current_batch_file.exists():
                     try:
@@ -2529,10 +2564,61 @@ def main() -> int:
                         runtime_warnings.append(f"Unable to delete batch file: {current_batch_file}")
                 return True
 
+            load_batch_failure_count += 1
+            failed_step = next((item for item in reversed(batch_steps) if not item.get("ok")), None)
+            failure_tail = ""
+            if failed_step:
+                failure_tail = str(
+                    failed_step.get("stderr_tail") or failed_step.get("stdout_tail") or ""
+                ).strip()
+            if len(failure_tail) > 400:
+                failure_tail = failure_tail[:397] + "..."
+
+            quarantine_path = None
+            try:
+                failed_files_dir.mkdir(parents=True, exist_ok=True)
+                quarantine_path = (
+                    failed_files_dir
+                    / f"failed_file_{current_batch_index:05d}_rows_{row_start}_{row_end}.jsonl"
+                )
+                if current_batch_file.exists():
+                    shutil.copy2(current_batch_file, quarantine_path)
+            except OSError as err:
+                runtime_warnings.append(
+                    f"Unable to copy failed file {current_batch_file} to quarantine ({err})."
+                )
+                quarantine_path = None
+
+            failed_entry = {
+                "file_index": current_batch_index,
+                "expected_files": expected_files,
+                "rows_start": row_start,
+                "rows_end": row_end,
+                "records": current_batch_records,
+                "source_file": str(current_batch_file),
+                "quarantine_file": str(quarantine_path) if quarantine_path else None,
+                "elapsed_seconds": elapsed_seconds,
+                "failure_tail": failure_tail,
+            }
+            failed_file_entries.append(failed_entry)
+
             print(
                 f"[LOAD] FAILED at file {current_batch_index}/{expected_files} "
-                f"(rows {row_start:,}-{row_end:,})"
+                f"(rows {row_start:,}-{row_end:,}) after {elapsed_seconds:.1f} seconds"
             )
+            if quarantine_path:
+                print(f"[LOAD] Failed file quarantined at: {quarantine_path}")
+
+            if args.continue_on_failed_file:
+                runtime_warnings.append(
+                    f"Continuing after failed file {current_batch_index}/{expected_files} "
+                    f"(rows {row_start:,}-{row_end:,})."
+                )
+                if args.max_failed_files > 0 and load_batch_failure_count >= args.max_failed_files:
+                    abort_due_to_failed_limit = True
+                    runtime_warnings.append(
+                        f"Max failed files limit reached ({args.max_failed_files}); aborting remaining files."
+                    )
             return False
 
         try:
@@ -2560,6 +2646,8 @@ def main() -> int:
                         next_row_index = row_end + 1
 
                         if not process_batch_file(batch_file, batch_index, batch_records, row_start, row_end):
+                            if args.continue_on_failed_file and not abort_due_to_failed_limit:
+                                continue
                             batch_failed = True
                             break
 
@@ -2570,18 +2658,46 @@ def main() -> int:
                     row_end = next_row_index + batch_records - 1
                     next_row_index = row_end + 1
                     if not process_batch_file(batch_file, batch_index, batch_records, row_start, row_end):
-                        batch_failed = True
+                        if not (args.continue_on_failed_file and not abort_due_to_failed_limit):
+                            batch_failed = True
         finally:
             if batch_writer is not None:
                 batch_writer.close()
 
-        load_ok = (not batch_failed) and load_batch_count > 0
+        if failed_file_entries:
+            failed_payload = {
+                "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+                "continue_on_failed_file": args.continue_on_failed_file,
+                "max_failed_files": args.max_failed_files,
+                "failed_file_count": len(failed_file_entries),
+                "failed_files": failed_file_entries,
+            }
+            failed_files_summary_json.write_text(
+                json.dumps(failed_payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+        if args.continue_on_failed_file:
+            load_ok = (not batch_failed) and load_batch_success_count > 0
+        else:
+            load_ok = (not batch_failed) and load_batch_failure_count == 0 and load_batch_success_count > 0
+
         if load_ok:
             runtime_warnings.append(
-                f"Split-file load completed successfully ({load_batch_count} files, "
-                f"{load_batch_records_total} records)."
+                "Split-file load completed: "
+                f"processed={load_batch_count}, success={load_batch_success_count}, "
+                f"failed={load_batch_failure_count}, records_seen={load_batch_records_total}."
             )
+            if load_batch_failure_count > 0:
+                runtime_warnings.append(
+                    "Run completed with partial load due to failed files. "
+                    f"Review: {failed_files_summary_json}"
+                )
     else:
+        if args.continue_on_failed_file:
+            runtime_warnings.append(
+                "--continue-on-failed-file ignored because --load-batch-size is disabled."
+            )
         load_ok, load_steps, load_warnings, removed = run_load_attempts_for_file(
             project_setup_env=project_setup_env,
             load_input_jsonl=load_input_jsonl,
@@ -2612,6 +2728,8 @@ def main() -> int:
             "run_directory": str(run_dir),
             "project_dir": str(project_dir),
             "runtime_warnings": runtime_warnings,
+            "failed_files": failed_file_entries,
+            "failed_files_summary_json": str(failed_files_summary_json) if failed_files_summary_json.exists() else None,
             "steps": steps,
         }
         summary_file.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -2969,7 +3087,11 @@ def main() -> int:
             "keep_load_chunk_files": args.keep_load_chunk_files,
             "load_batch_size": args.load_batch_size,
             "keep_load_batch_files": args.keep_load_batch_files,
+            "continue_on_failed_file": args.continue_on_failed_file,
+            "max_failed_files": args.max_failed_files,
             "load_batch_count": load_batch_count,
+            "load_batch_success_count": load_batch_success_count,
+            "load_batch_failure_count": load_batch_failure_count,
             "load_batch_records_total": load_batch_records_total,
             "snapshot_threads": args.snapshot_threads,
             "snapshot_fallback_threads": args.snapshot_fallback_threads,
@@ -2990,6 +3112,10 @@ def main() -> int:
             "load_input_jsonl": str(load_input_jsonl),
             "loader_temp_files_removed": loader_temp_files_removed,
             "load_batches_dir": str(load_batches_dir) if load_batches_dir.exists() else None,
+            "failed_files_dir": str(failed_files_dir) if failed_files_dir.exists() else None,
+            "failed_files_summary_json": (
+                str(failed_files_summary_json) if failed_files_summary_json.exists() else None
+            ),
             "config_scripts_dir": str(config_scripts_dir),
             "snapshot_json": str(snapshot_json) if snapshot_json.exists() else None,
             "export_file": str(export_file) if export_file.exists() else None,
@@ -3009,6 +3135,7 @@ def main() -> int:
         },
         "explain": explain_summary,
         "comparison": comparison_artifacts,
+        "failed_files": failed_file_entries,
         "steps": steps,
     }
     try:

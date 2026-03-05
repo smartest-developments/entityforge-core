@@ -5,6 +5,7 @@ set -euo pipefail
 # Stable profile for current production environment:
 # - single-thread load
 # - proactive batching (100k records per batch)
+# - continue past failed split files (up to max-failed-files)
 # - ultra-small chunk fallback (100)
 # - keep chunk files for post-failure pinpoint analysis
 # - core dumps disabled for cleaner operations
@@ -18,5 +19,7 @@ python3 run_mvp_with_auto_diagnosis.py \
   --load-fallback-threads 1 \
   --load-batch-size 100000 \
   --keep-load-batch-files \
+  --continue-on-failed-file \
+  --max-failed-files 50 \
   --load-chunk-size 100 \
   --keep-load-chunk-files

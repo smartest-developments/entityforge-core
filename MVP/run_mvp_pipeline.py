@@ -110,6 +110,17 @@ def parse_args() -> argparse.Namespace:
         help="Keep temporary JSONL files generated for proactive load batches.",
     )
     parser.add_argument(
+        "--continue-on-failed-file",
+        action="store_true",
+        help="When load batch split is active, continue with next file even if one split file fails.",
+    )
+    parser.add_argument(
+        "--max-failed-files",
+        type=int,
+        default=0,
+        help="Maximum failed split files allowed before abort (default: 0 = unlimited).",
+    )
+    parser.add_argument(
         "--disable-large-run-tuning",
         action="store_true",
         help="Disable automatic tuning for large inputs.",
@@ -785,6 +796,9 @@ def main() -> int:
     if args.load_batch_size < 0:
         print("ERROR: --load-batch-size must be >= 0", file=sys.stderr)
         return 2
+    if args.max_failed_files < 0:
+        print("ERROR: --max-failed-files must be >= 0", file=sys.stderr)
+        return 2
     if args.large_run_load_chunk_size <= 0:
         print("ERROR: --large-run-load-chunk-size must be > 0", file=sys.stderr)
         return 2
@@ -848,6 +862,8 @@ def main() -> int:
     effective_keep_load_chunk_files = bool(args.keep_load_chunk_files)
     effective_load_batch_size = args.load_batch_size
     effective_keep_load_batch_files = bool(args.keep_load_batch_files)
+    effective_continue_on_failed_file = bool(args.continue_on_failed_file)
+    effective_max_failed_files = args.max_failed_files
     large_run_tuning_applied = False
     effective_stream_export = bool(args.stream_export)
 
@@ -933,6 +949,8 @@ def main() -> int:
         "effective_keep_load_chunk_files": effective_keep_load_chunk_files,
         "effective_load_batch_size": effective_load_batch_size,
         "effective_keep_load_batch_files": effective_keep_load_batch_files,
+        "effective_continue_on_failed_file": effective_continue_on_failed_file,
+        "effective_max_failed_files": effective_max_failed_files,
         "effective_stream_export": effective_stream_export,
         "with_snapshot": bool(args.with_snapshot),
         "with_why": bool(args.with_why),
@@ -1073,6 +1091,10 @@ def main() -> int:
         e2e_cmd.extend(["--load-batch-size", str(effective_load_batch_size)])
     if effective_keep_load_batch_files:
         e2e_cmd.append("--keep-load-batch-files")
+    if effective_continue_on_failed_file:
+        e2e_cmd.append("--continue-on-failed-file")
+    if effective_max_failed_files > 0:
+        e2e_cmd.extend(["--max-failed-files", str(effective_max_failed_files)])
     if effective_stream_export:
         e2e_cmd.append("--stream-export")
 

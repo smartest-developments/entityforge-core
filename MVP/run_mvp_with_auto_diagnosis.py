@@ -66,6 +66,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Keep temporary JSONL files generated for proactive load batches.",
     )
+    parser.add_argument(
+        "--continue-on-failed-file",
+        action="store_true",
+        help="Continue with next split file when one load-batch file fails.",
+    )
+    parser.add_argument(
+        "--max-failed-files",
+        type=int,
+        default=0,
+        help="Maximum failed split files allowed before abort (default: 0 = unlimited).",
+    )
     parser.add_argument("--snapshot-threads", type=int, default=1)
     parser.add_argument("--snapshot-fallback-threads", type=int, default=1)
     parser.add_argument("--disable-stream-export", action="store_true", help="Disable stream export mode")
@@ -171,6 +182,10 @@ def build_pipeline_command(args: argparse.Namespace, mvp_root: Path) -> list[str
         command.extend(["--load-batch-size", str(args.load_batch_size)])
     if args.keep_load_batch_files:
         command.append("--keep-load-batch-files")
+    if args.continue_on_failed_file:
+        command.append("--continue-on-failed-file")
+    if args.max_failed_files > 0:
+        command.extend(["--max-failed-files", str(args.max_failed_files)])
     if not args.disable_stream_export:
         command.append("--stream-export")
     if args.with_snapshot:
