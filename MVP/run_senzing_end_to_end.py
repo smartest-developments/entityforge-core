@@ -1082,10 +1082,26 @@ def run_chunked_load_fallback(
     warnings: list[str] = []
     steps: list[dict[str, Any]] = []
     chunk_index = 0
+    step_attempts = 0
+    failed_single_record_ids: list[str] = []
     total_records = 0
 
-    def execute_chunk(chunk_lines: list[str], idx: int) -> bool:
-        chunk_file = chunk_dir / f"load_chunk_{idx:05d}.jsonl"
+    def extract_record_id_from_line(raw_line: str) -> str | None:
+        try:
+            obj = json.loads(raw_line)
+        except Exception:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        rid = str(obj.get("RECORD_ID") or "").strip()
+        return rid or None
+
+    def execute_chunk(chunk_lines: list[str], idx: int, split_level: int = 0, split_tag: str = "") -> bool:
+        nonlocal step_attempts
+        file_suffix = f"{idx:05d}"
+        if split_tag:
+            file_suffix = f"{file_suffix}_{split_tag}"
+        chunk_file = chunk_dir / f"load_chunk_{file_suffix}.jsonl"
         chunk_file.write_text("\n".join(chunk_lines) + "\n", encoding="utf-8")
         chunk_cmd = build_load_command(
             project_setup_env=project_setup_env,
@@ -1096,29 +1112,55 @@ def run_chunked_load_fallback(
             license_string=license_string,
         )
         step = run_shell_step(
-            step_name=f"load_records_chunk_{idx:05d}",
+            step_name=f"load_records_chunk_{file_suffix}",
             shell_command=chunk_cmd,
-            log_path=logs_dir / f"02_load_chunk_{idx:05d}.log",
+            log_path=logs_dir / f"02_load_chunk_{file_suffix}.log",
             timeout_seconds=timeout_seconds,
         )
+        step_attempts += 1
         step["attempt_mode"] = "chunked_single_thread"
         step["chunk_index"] = idx
         step["chunk_records"] = len(chunk_lines)
         step["chunk_file"] = str(chunk_file)
+        step["chunk_split_level"] = split_level
+        step["chunk_split_tag"] = split_tag
         steps.append(step)
 
         if step["ok"] and (not keep_loader_temp_files):
             removed = cleanup_loader_shuffle_files(chunk_file)
             if removed:
                 warnings.append(
-                    f"Removed {len(removed)} loader temp file(s) after chunk {idx:05d}."
+                    f"Removed {len(removed)} loader temp file(s) after chunk {file_suffix}."
                 )
-        if (not keep_chunk_files) and chunk_file.exists():
+        if step["ok"] and (not keep_chunk_files) and chunk_file.exists():
             try:
                 chunk_file.unlink()
             except OSError:
                 warnings.append(f"Unable to delete chunk file: {chunk_file}")
-        return bool(step["ok"])
+        if step["ok"]:
+            return True
+
+        # Adaptive split: if a chunk fails, split and retry smaller chunks.
+        if len(chunk_lines) <= 1:
+            rid = extract_record_id_from_line(chunk_lines[0]) if chunk_lines else None
+            if rid:
+                failed_single_record_ids.append(rid)
+            warnings.append(
+                f"Chunk {file_suffix} failed at single-record granularity; "
+                f"RECORD_ID={rid or '<unknown>'}. See {step.get('log_file')}."
+            )
+            return False
+
+        mid = len(chunk_lines) // 2
+        left = chunk_lines[:mid]
+        right = chunk_lines[mid:]
+        warnings.append(
+            f"Chunk {file_suffix} failed (size={len(chunk_lines)}); "
+            f"splitting into {len(left)} + {len(right)}."
+        )
+        left_ok = execute_chunk(left, idx, split_level + 1, f"{split_tag}a")
+        right_ok = execute_chunk(right, idx, split_level + 1, f"{split_tag}b")
+        return left_ok and right_ok
 
     current_chunk: list[str] = []
     with load_input_jsonl.open("r", encoding="utf-8", errors="replace") as infile:
@@ -1131,15 +1173,36 @@ def run_chunked_load_fallback(
             if len(current_chunk) >= chunk_size:
                 chunk_index += 1
                 if not execute_chunk(current_chunk, chunk_index):
-                    return False, steps, warnings, chunk_index, total_records
+                    failed_ids_path = chunk_dir / "failed_single_record_ids.txt"
+                    if failed_single_record_ids:
+                        failed_ids_path.write_text(
+                            "\n".join(sorted(set(failed_single_record_ids))) + "\n",
+                            encoding="utf-8",
+                        )
+                        warnings.append(f"Failed single-record IDs written to: {failed_ids_path}")
+                    return False, steps, warnings, step_attempts, total_records
                 current_chunk = []
 
     if current_chunk:
         chunk_index += 1
         if not execute_chunk(current_chunk, chunk_index):
-            return False, steps, warnings, chunk_index, total_records
+            failed_ids_path = chunk_dir / "failed_single_record_ids.txt"
+            if failed_single_record_ids:
+                failed_ids_path.write_text(
+                    "\n".join(sorted(set(failed_single_record_ids))) + "\n",
+                    encoding="utf-8",
+                )
+                warnings.append(f"Failed single-record IDs written to: {failed_ids_path}")
+            return False, steps, warnings, step_attempts, total_records
 
-    return True, steps, warnings, chunk_index, total_records
+    if failed_single_record_ids:
+        failed_ids_path = chunk_dir / "failed_single_record_ids.txt"
+        failed_ids_path.write_text(
+            "\n".join(sorted(set(failed_single_record_ids))) + "\n",
+            encoding="utf-8",
+        )
+        warnings.append(f"Failed single-record IDs written to: {failed_ids_path}")
+    return True, steps, warnings, step_attempts, total_records
 
 
 def format_percent(value: float | None) -> str:
@@ -2706,6 +2769,9 @@ def main() -> int:
             "load_threads": args.load_threads,
             "load_fallback_threads": args.load_fallback_threads,
             "load_no_shuffle_primary": args.load_no_shuffle_primary,
+            "enable_load_chunk_fallback": args.enable_load_chunk_fallback,
+            "load_chunk_size": args.load_chunk_size,
+            "keep_load_chunk_files": args.keep_load_chunk_files,
             "snapshot_threads": args.snapshot_threads,
             "snapshot_fallback_threads": args.snapshot_fallback_threads,
             "fast_mode": args.fast_mode,
