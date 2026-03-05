@@ -6,10 +6,13 @@ set -euo pipefail
 # - single-thread load
 # - proactive batching (100k records per batch)
 # - continue past failed split files (up to max-failed-files)
+# - per-file timeout to avoid long stalls
 # - ultra-small chunk fallback (100)
 # - keep chunk files for post-failure pinpoint analysis
 # - core dumps disabled for cleaner operations
 ulimit -c 0 || true
+
+LOAD_FILE_TIMEOUT_SECONDS="${LOAD_FILE_TIMEOUT_SECONDS:-180}"
 
 python3 run_mvp_with_auto_diagnosis.py \
   --input-json /mnt/Senzing-Ready.json \
@@ -21,5 +24,6 @@ python3 run_mvp_with_auto_diagnosis.py \
   --keep-load-batch-files \
   --continue-on-failed-file \
   --max-failed-files 50 \
+  --load-file-timeout-seconds "$LOAD_FILE_TIMEOUT_SECONDS" \
   --load-chunk-size 100 \
   --keep-load-chunk-files

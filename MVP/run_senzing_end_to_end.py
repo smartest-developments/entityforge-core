@@ -848,6 +848,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--load-file-timeout-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Maximum wall-clock seconds allowed for loading one split file "
+            "(0 = disabled, uses normal step timeout behavior)."
+        ),
+    )
+    parser.add_argument(
         "--failed-files-output-dir",
         default="failed_files",
         help="Run-relative directory where failed split files are copied (default: failed_files).",
@@ -1098,6 +1107,7 @@ def run_chunked_load_fallback(
     logs_dir: Path,
     chunk_size: int,
     timeout_seconds: int | None,
+    file_deadline_ts: float | None = None,
     engine_config_json: str | None = None,
     license_string: str | None = None,
     keep_chunk_files: bool = False,
@@ -1148,11 +1158,23 @@ def run_chunked_load_fallback(
             engine_config_json=engine_config_json,
             license_string=license_string,
         )
+        effective_timeout = timeout_seconds
+        if file_deadline_ts is not None:
+            remaining = int(file_deadline_ts - time.time())
+            if remaining <= 0:
+                warnings.append(
+                    f"Chunk {file_suffix} skipped: load-file timeout exceeded before chunk execution."
+                )
+                return False
+            if effective_timeout is None:
+                effective_timeout = remaining
+            else:
+                effective_timeout = max(1, min(effective_timeout, remaining))
         step = run_shell_step(
             step_name=f"load_records_chunk_{file_suffix}",
             shell_command=chunk_cmd,
             log_path=logs_dir / f"02_load_chunk_{file_suffix}.log",
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=effective_timeout,
         )
         step_attempts += 1
         step["attempt_mode"] = "chunked_single_thread"
@@ -1258,6 +1280,7 @@ def run_load_attempts_for_file(
     license_string: str | None = None,
     keep_load_chunk_files: bool = False,
     keep_loader_temp_files: bool = False,
+    load_file_timeout_seconds: int | None = None,
     step_name_prefix: str = "load_records",
     log_name_prefix: str = "02_load",
 ) -> tuple[bool, list[dict[str, Any]], list[str], list[str]]:
@@ -1265,6 +1288,20 @@ def run_load_attempts_for_file(
     steps: list[dict[str, Any]] = []
     runtime_warnings: list[str] = []
     loader_temp_files_removed: list[str] = []
+    file_started_at = time.time()
+    file_deadline_ts = None
+    if load_file_timeout_seconds is not None and load_file_timeout_seconds > 0:
+        file_deadline_ts = file_started_at + load_file_timeout_seconds
+
+    def resolve_timeout_for_step() -> int | None:
+        if file_deadline_ts is None:
+            return step_timeout_seconds
+        remaining = int(file_deadline_ts - time.time())
+        if remaining <= 0:
+            return 0
+        if step_timeout_seconds is None:
+            return remaining
+        return max(1, min(step_timeout_seconds, remaining))
 
     load_attempts: list[tuple[str, str, Path]] = [
         (
@@ -1299,11 +1336,17 @@ def run_load_attempts_for_file(
     load_ok = False
     for attempt_index, (attempt_mode, load_cmd, load_log_path) in enumerate(load_attempts):
         step_name = step_name_prefix if attempt_index == 0 else f"{step_name_prefix}_retry_{attempt_index}"
+        timeout_for_step = resolve_timeout_for_step()
+        if timeout_for_step == 0:
+            runtime_warnings.append(
+                f"{step_name_prefix} skipped remaining attempts: load-file timeout exceeded."
+            )
+            break
         step = run_shell_step(
             step_name=step_name,
             shell_command=load_cmd,
             log_path=load_log_path,
-            timeout_seconds=step_timeout_seconds,
+            timeout_seconds=timeout_for_step,
         )
         step["attempt_mode"] = attempt_mode
         step["load_input_jsonl"] = str(load_input_jsonl)
@@ -1317,6 +1360,12 @@ def run_load_attempts_for_file(
             break
 
     if not load_ok and enable_load_chunk_fallback and load_chunk_size > 0:
+        timeout_for_chunks = resolve_timeout_for_step()
+        if timeout_for_chunks == 0:
+            runtime_warnings.append(
+                f"{step_name_prefix} chunk fallback skipped: load-file timeout exceeded."
+            )
+            return False, steps, runtime_warnings, loader_temp_files_removed
         runtime_warnings.append(
             f"{step_name_prefix} standard retries failed; trying chunked fallback (chunk_size={load_chunk_size})."
         )
@@ -1326,7 +1375,8 @@ def run_load_attempts_for_file(
             chunk_dir=chunk_dir,
             logs_dir=logs_dir,
             chunk_size=load_chunk_size,
-            timeout_seconds=step_timeout_seconds,
+            timeout_seconds=timeout_for_chunks,
+            file_deadline_ts=file_deadline_ts,
             engine_config_json=engine_config_json,
             license_string=license_string,
             keep_chunk_files=keep_load_chunk_files,
@@ -2324,6 +2374,9 @@ def main() -> int:
     if args.max_failed_files < 0:
         print("ERROR: --max-failed-files must be >= 0", file=sys.stderr)
         return 2
+    if args.load_file_timeout_seconds < 0:
+        print("ERROR: --load-file-timeout-seconds must be >= 0", file=sys.stderr)
+        return 2
     if args.snapshot_threads <= 0 or args.snapshot_fallback_threads <= 0:
         print("ERROR: --snapshot-threads and --snapshot-fallback-threads must be > 0", file=sys.stderr)
         return 2
@@ -2531,6 +2584,7 @@ def main() -> int:
                 load_input_jsonl=current_batch_file,
                 logs_dir=logs_dir,
                 step_timeout_seconds=args.step_timeout_seconds,
+                load_file_timeout_seconds=(args.load_file_timeout_seconds or None),
                 load_threads=args.load_threads,
                 load_fallback_threads=args.load_fallback_threads,
                 load_no_shuffle_primary=args.load_no_shuffle_primary,
@@ -2703,6 +2757,7 @@ def main() -> int:
             load_input_jsonl=load_input_jsonl,
             logs_dir=logs_dir,
             step_timeout_seconds=args.step_timeout_seconds,
+            load_file_timeout_seconds=(args.load_file_timeout_seconds or None),
             load_threads=args.load_threads,
             load_fallback_threads=args.load_fallback_threads,
             load_no_shuffle_primary=args.load_no_shuffle_primary,
@@ -3089,6 +3144,7 @@ def main() -> int:
             "keep_load_batch_files": args.keep_load_batch_files,
             "continue_on_failed_file": args.continue_on_failed_file,
             "max_failed_files": args.max_failed_files,
+            "load_file_timeout_seconds": args.load_file_timeout_seconds,
             "load_batch_count": load_batch_count,
             "load_batch_success_count": load_batch_success_count,
             "load_batch_failure_count": load_batch_failure_count,
