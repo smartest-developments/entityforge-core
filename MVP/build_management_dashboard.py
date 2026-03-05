@@ -1216,18 +1216,37 @@ def write_data_js(path: Path, payload: dict) -> None:
     path.write_text(js, encoding="utf-8")
 
 
-def sync_dashboard_assets(template_dir: Path, target_dir: Path) -> None:
-    missing_in_target = [name for name in STATIC_DASHBOARD_FILES if not (target_dir / name).exists()]
-    if not missing_in_target:
-        return
+def has_complete_dashboard_assets(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    return all((path / name).exists() for name in STATIC_DASHBOARD_FILES)
 
-    can_copy_from_template = template_dir.exists() and template_dir.resolve() != target_dir.resolve()
-    if can_copy_from_template:
-        missing_in_template = [name for name in STATIC_DASHBOARD_FILES if not (template_dir / name).exists()]
-        if not missing_in_template:
-            for filename in STATIC_DASHBOARD_FILES:
-                shutil.copy2(template_dir / filename, target_dir / filename)
-            return
+
+def resolve_dashboard_template_dir(mvp_root: Path, dashboard_dir: Path) -> Path | None:
+    """Resolve best template source for dashboard assets.
+
+    Supports both:
+    - standard layout: <root>/dashboard
+    - production copied layout: <root>/MVP/dashboard
+    """
+    candidates = [
+        (mvp_root / "dashboard").resolve(),
+        (mvp_root / "MVP" / "dashboard").resolve(),
+    ]
+    # Avoid copying from target to target.
+    candidates = [item for item in candidates if item != dashboard_dir.resolve()]
+    for candidate in candidates:
+        if has_complete_dashboard_assets(candidate):
+            return candidate
+    return None
+
+
+def sync_dashboard_assets(template_dir: Path | None, target_dir: Path) -> None:
+    if template_dir is not None:
+        # Always refresh to avoid stale fallback UI files in target directory.
+        for filename in STATIC_DASHBOARD_FILES:
+            shutil.copy2(template_dir / filename, target_dir / filename)
+        return
 
     # Fallback: generate a self-contained minimal dashboard when template files are missing.
     for filename, content in FALLBACK_DASHBOARD_FILES.items():
@@ -1303,8 +1322,8 @@ def main() -> int:
     args = parse_args()
     mvp_root = Path(__file__).resolve().parent
     output_root = (mvp_root / args.output_root).resolve()
-    dashboard_template_dir = (mvp_root / "dashboard").resolve()
     dashboard_dir = (mvp_root / args.dashboard_dir).resolve()
+    dashboard_template_dir = resolve_dashboard_template_dir(mvp_root=mvp_root, dashboard_dir=dashboard_dir)
     data_js_path = dashboard_dir / "management_dashboard_data.js"
 
     if not output_root.exists():
