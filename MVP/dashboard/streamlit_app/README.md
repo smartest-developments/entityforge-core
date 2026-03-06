@@ -1,29 +1,32 @@
 # Streamlit App
 
-This folder contains a Streamlit wrapper that renders the exact HTML dashboard UI.
+This folder is standalone.
+
+It contains:
+- `app.py`
+- `requirements.txt`
+- `assets/` (all dashboard HTML/CSS/JS/data files needed at runtime)
 
 ## Run
 
-From repository root:
+From this folder:
 
 ```bash
-python3 -m pip install streamlit pandas altair
-streamlit run MVP/dashboard/streamlit_app/app.py
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
 ## Data source
 
-The app auto-detects `management_dashboard_data.js` from:
+Default source:
+- `assets/management_dashboard_data.js`
 
-1. `MVP/dashboard/management_dashboard_data.js`
-2. `MVP/presentation/management_dashboard_data.js`
-3. JSON variants of the same files
-
-You can also override the path from the sidebar.
+Optional:
+- enable `Use external data file` from the sidebar and provide another `management_dashboard_data.js` path.
 
 ## Notes
 
 - This app requires a running Python process.
 - It renders the same dashboard HTML/CSS/JS used by the offline presentation.
-- It adds an intro animation ("sliding doors") with text:
+- It adds an intro fade animation with text:
   - `SCV Senzing PoC`

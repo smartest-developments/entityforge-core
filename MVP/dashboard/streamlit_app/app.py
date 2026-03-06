@@ -89,13 +89,6 @@ INTRO_SNIPPET = """
 """
 
 
-def first_existing(paths: list[Path]) -> Path | None:
-    for path in paths:
-        if path.exists():
-            return path
-    return None
-
-
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -158,53 +151,30 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    dashboard_root = Path(__file__).resolve().parents[1]
-    presentation_root = Path(__file__).resolve().parents[2] / "presentation"
+    app_root = Path(__file__).resolve().parent
+    assets_root = app_root / "assets"
+    default_data_js = assets_root / "management_dashboard_data.js"
 
-    html_template = first_existing(
-        [
-            dashboard_root / "management_dashboard.html",
-            presentation_root / "management_dashboard.html",
-        ]
-    )
-    tabler_css = first_existing([dashboard_root / "tabler.min.css", presentation_root / "tabler.min.css"])
-    dashboard_css = first_existing(
-        [dashboard_root / "management_dashboard.css", presentation_root / "management_dashboard.css"]
-    )
-    tabler_js = first_existing([dashboard_root / "tabler.min.js", presentation_root / "tabler.min.js"])
-    chart_js = first_existing([dashboard_root / "chart.umd.js", presentation_root / "chart.umd.js"])
-    dashboard_js = first_existing(
-        [dashboard_root / "management_dashboard.js", presentation_root / "management_dashboard.js"]
-    )
-    default_data_js = first_existing(
-        [
-            dashboard_root / "management_dashboard_data.js",
-            presentation_root / "management_dashboard_data.js",
-        ]
-    )
-
-    st.sidebar.header("Data source")
-    default_data_text = str(default_data_js) if default_data_js else ""
-    data_js_path_raw = st.sidebar.text_input("Path to management_dashboard_data.js", value=default_data_text)
-
-    if not data_js_path_raw.strip():
-        st.error("Set a valid `management_dashboard_data.js` path.")
-        return
-
-    data_js_path = Path(data_js_path_raw).expanduser()
-    if not data_js_path.is_absolute():
-        data_js_path = (Path.cwd() / data_js_path).resolve()
+    use_external_data = st.sidebar.toggle("Use external data file", value=False)
+    if use_external_data:
+        st.sidebar.header("External data source")
+        data_js_path_raw = st.sidebar.text_input("Path to management_dashboard_data.js", value=str(default_data_js))
+        data_js_path = Path(data_js_path_raw).expanduser()
+        if not data_js_path.is_absolute():
+            data_js_path = (Path.cwd() / data_js_path).resolve()
+    else:
+        data_js_path = default_data_js
 
     required = {
-        "html_template": html_template,
-        "tabler_css": tabler_css,
-        "dashboard_css": dashboard_css,
-        "tabler_js": tabler_js,
-        "chart_js": chart_js,
-        "dashboard_js": dashboard_js,
+        "html_template": assets_root / "management_dashboard.html",
+        "tabler_css": assets_root / "tabler.min.css",
+        "dashboard_css": assets_root / "management_dashboard.css",
+        "tabler_js": assets_root / "tabler.min.js",
+        "chart_js": assets_root / "chart.umd.js",
+        "dashboard_js": assets_root / "management_dashboard.js",
         "data_js": data_js_path,
     }
-    missing = [name for name, path in required.items() if path is None or not path.exists()]
+    missing = [name for name, path in required.items() if not path.exists()]
     if missing:
         st.error(f"Missing required files: {', '.join(missing)}")
         st.write(
