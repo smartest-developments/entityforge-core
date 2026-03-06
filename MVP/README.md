@@ -12,6 +12,18 @@ This MVP is now focused on a **single high-volume stress dataset**:
 - `build_management_dashboard.py`: rebuilds static dashboard data + automated checks
 - `verify_dashboard_metrics.py`: cross-checks dashboard KPIs vs technical artifacts
 - `testing/`: full automated KPI validation suite
+- `presentation/`: minimal offline bundle for business presentation (`index.html`)
+
+## Final results (offline, no server)
+
+If you only need to present final numbers/graphs, use:
+
+- `presentation/index.html` (double-click to open)
+
+The `presentation/` folder is intentionally self-contained:
+- dashboard HTML/CSS/JS
+- UI libraries
+- embedded final data (`management_dashboard_data.js`)
 
 ## Generate the 1M stress sample
 
