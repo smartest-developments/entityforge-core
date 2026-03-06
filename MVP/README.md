@@ -25,6 +25,19 @@ The `presentation/` folder is intentionally self-contained:
 - UI libraries
 - embedded final data (`management_dashboard_data.js`)
 
+## Optional Streamlit dashboard
+
+An interactive Streamlit version is available at:
+
+- `dashboard/streamlit_app/app.py`
+
+Run:
+
+```bash
+python3 -m pip install -r dashboard/streamlit_app/requirements.txt
+streamlit run dashboard/streamlit_app/app.py
+```
+
 ## Generate the 1M stress sample
 
 ```bash
