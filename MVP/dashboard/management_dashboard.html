@@ -27,8 +27,19 @@
               <div class="col-12">
                 <div class="card controls-card input-records-card">
                   <div class="card-body controls-card-body input-records-card-body">
-                    <div class="input-records-label">Full Execution Time (min)</div>
+                    <div class="input-records-label">Full Execution Time (hours, approx)</div>
                     <div class="input-records-value" id="executionMinutesValue">n/a</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row row-cards mb-2">
+              <div class="col-12">
+                <div class="card controls-card input-records-card">
+                  <div class="card-body controls-card-body input-records-card-body">
+                    <div class="input-records-label">Their Match Gain/Loss %</div>
+                    <div class="input-records-value" id="theirMatchGainLossValue">n/a</div>
                   </div>
                 </div>
               </div>
@@ -85,23 +96,6 @@
                 <div class="card">
                   <div class="card-header">
                     <h3 class="card-title">Their Top Match Keys</h3>
-                    <div class="match-key-total-wrap">
-                      <div class="match-key-total" id="matchKeyTotalValue">
-                        <span>Top 10: n/a</span>
-                        <span>Total pairs: n/a</span>
-                      </div>
-                      <span
-                        class="match-key-total-info"
-                        id="matchKeyTotalInfo"
-                        role="button"
-                        tabindex="0"
-                        data-bs-toggle="tooltip"
-                        data-bs-placement="left"
-                        data-bs-title="Top 10 pairs are the pairs covered by the 10 keys shown. Total pairs are all unique matched record pairs in this run."
-                        title="Top 10 pairs are the pairs covered by the 10 keys shown. Total pairs are all unique matched record pairs in this run."
-                        aria-label="Top 10 pairs are the pairs covered by the 10 keys shown. Total pairs are all unique matched record pairs in this run."
-                      >i</span>
-                    </div>
                   </div>
                   <div class="card-body match-keys-body">
                     <div id="matchKeyList" class="match-key-list"></div>

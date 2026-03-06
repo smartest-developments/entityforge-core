@@ -18,14 +18,29 @@
     return typeof value === 'number' ? `${value.toFixed(2)}%` : 'n/a';
   }
 
-  function fmtMinutes(value, isEstimate) {
+  function fmtApproxHoursFromMinutes(value) {
     if (typeof value !== 'number') {
       return 'n/a';
     }
-    if (isEstimate) {
-      return `~${value.toFixed(2)} min`;
+    const hours = value / 60;
+    const roundedHours = Math.max(1, Math.round(hours));
+    if (roundedHours === 1) {
+      return '~1 hour';
     }
-    return `${value.toFixed(2)} min`;
+    return `~${roundedHours} hours`;
+  }
+
+  function fmtApproxRecords(value) {
+    if (typeof value !== 'number') {
+      return 'n/a';
+    }
+    if (value >= 950000 && value <= 1050000) {
+      return '~1 million';
+    }
+    if (value >= 1000000) {
+      return `~${(value / 1000000).toFixed(2)} million`;
+    }
+    return fmtInt(value);
   }
 
   function fmtSignedPct(value) {
@@ -82,8 +97,6 @@
     const map = {
       'Match %': `Percentage of loaded records that Our reference (SOURCE_IPG_ID groups) considers matched, meaning records that belong to groups with at least 2 members.${isPartial ? ' This run is partial, so percentages refer only to loaded records.' : ''}`,
       'Entities Created': 'Total number of entities formed by Our reference grouping on the loaded records. Records with missing/blank IPG are treated as singleton entities (size 1).',
-      'Match Gain/Loss %': 'Difference between Our and Their matched-record coverage on the same loaded population. Positive means Our side groups more records; negative means Their side groups more records.',
-      'Entity Gain/Loss %': 'Difference between Our and Their entity counts on the same loaded population. Positive means Our side forms more entities (typically more fragmented); negative means Their side forms more entities.',
     };
     return map[label] || '';
   }
@@ -100,7 +113,6 @@
       'Match %': `Percentage of loaded records that Their engine resolves into multi-record entities (at least 2 records per entity).${isPartial ? ' This run is partial, so percentages refer only to loaded records.' : ''}`,
       'Entities Created': 'Total number of entities resolved by Their engine on the loaded records.',
       'Match Gain/Loss %': 'Difference between Their and Our matched-record coverage on the same loaded population. Positive means Their side groups more records; negative means Our side groups more records.',
-      'Entity Gain/Loss %': 'Difference between Their and Our entity counts on the same loaded population. Positive means Their side forms more entities (typically more fragmented); negative means Our side forms more entities.',
     };
     return map[label] || '';
   }
@@ -181,7 +193,6 @@
     const ourMatchPct = asNumber(run.our_match_pct) ?? ratioPct(ourGroupedMembers, inputRecords);
     const theirMatchPct = asNumber(run.their_match_pct) ?? ratioPct(theirGroupedMembers, inputRecords);
     const theirMatchGainLossPct = asNumber(run.their_match_gain_loss_pct);
-    const theirEntityGainLossPct = asNumber(run.their_entity_gain_loss_pct);
 
     const ourCards = [
       { label: 'Match %', value: fmtPct(ourMatchPct), help: getOurMetricHelp('Match %', run) },
@@ -191,8 +202,6 @@
     const theirCards = [
       { label: 'Match %', value: fmtPct(theirMatchPct), help: getTheirMetricHelp('Match %', run) },
       { label: 'Entities Created', value: fmtInt(theirEntities), help: getTheirMetricHelp('Entities Created', run) },
-      { label: 'Match Gain/Loss %', value: fmtSignedPct(theirMatchGainLossPct), help: getTheirMetricHelp('Match Gain/Loss %', run) },
-      { label: 'Entity Gain/Loss %', value: fmtSignedPct(theirEntityGainLossPct), help: getTheirMetricHelp('Entity Gain/Loss %', run) },
     ];
 
     byId('ourMetricCards').innerHTML = ourCards
@@ -249,12 +258,11 @@
 
     const executionMinutes = asNumber(run.execution_minutes);
     const executionMinutesEstimated = asNumber(run.execution_minutes_estimated);
-    const isEstimate = executionMinutes === null && !!run.execution_minutes_is_estimate;
-    byId('inputRecordsValue').textContent = fmtInt(run.records_input);
-    byId('executionMinutesValue').textContent = fmtMinutes(
-      executionMinutes !== null ? executionMinutes : executionMinutesEstimated,
-      isEstimate
+    byId('inputRecordsValue').textContent = fmtApproxRecords(run.records_input);
+    byId('executionMinutesValue').textContent = fmtApproxHoursFromMinutes(
+      executionMinutes !== null ? executionMinutes : executionMinutesEstimated
     );
+    byId('theirMatchGainLossValue').textContent = fmtSignedPct(theirMatchGainLossPct);
     refreshTooltips();
   }
 
@@ -280,15 +288,24 @@
     destroyChart('ourEntitySizeChart');
     destroyChart('theirEntitySizeChart');
 
-    const ourEntity = toDistribution(run.our_entity_size_distribution);
+    const ourEntityAll = toDistribution(run.our_entity_size_distribution);
+    const ourLabels = [];
+    const ourValues = [];
+    ourEntityAll.labels.forEach((label, index) => {
+      const size = Number(label);
+      if (Number.isFinite(size) && size <= 30) {
+        ourLabels.push(label);
+        ourValues.push(ourEntityAll.values[index]);
+      }
+    });
     state.ourEntitySizeChart = new Chart(byId('ourEntitySizeChart'), {
       type: 'bar',
       data: {
-        labels: ourEntity.labels,
+        labels: ourLabels,
         datasets: [
           {
             label: 'Entity count',
-            data: ourEntity.values,
+            data: ourValues,
             backgroundColor: '#ffffff',
             borderColor: '#ffffff',
             hoverBackgroundColor: '#ffffff',
@@ -337,15 +354,24 @@
       },
     });
 
-    const theirEntity = toDistribution(run.entity_size_distribution);
+    const theirEntityAll = toDistribution(run.entity_size_distribution);
+    const theirLabels = [];
+    const theirValues = [];
+    theirEntityAll.labels.forEach((label, index) => {
+      const size = Number(label);
+      if (Number.isFinite(size) && size <= 30) {
+        theirLabels.push(label);
+        theirValues.push(theirEntityAll.values[index]);
+      }
+    });
     state.theirEntitySizeChart = new Chart(byId('theirEntitySizeChart'), {
       type: 'bar',
       data: {
-        labels: theirEntity.labels,
+        labels: theirLabels,
         datasets: [
           {
             label: 'Entity count',
-            data: theirEntity.values,
+            data: theirValues,
             backgroundColor: '#ffffff',
             borderColor: '#ffffff',
             hoverBackgroundColor: '#ffffff',
@@ -412,46 +438,18 @@
 
   function renderTopMatchKeys(run) {
     const container = byId('matchKeyList');
-    const totalEl = byId('matchKeyTotalValue');
-    const totalInfoEl = byId('matchKeyTotalInfo');
     if (!container) {
       return;
     }
     const topKeys = Array.isArray(run.top_match_keys) ? run.top_match_keys : [];
     if (!topKeys.length) {
       container.innerHTML = '<div class="match-key-empty">No match keys available for this run.</div>';
-      if (totalEl) {
-        totalEl.innerHTML = '<span>Top 10: n/a</span><span>Total pairs: n/a</span>';
-      }
-      if (totalInfoEl) {
-        setTooltipText(
-          totalInfoEl,
-          'Top 10 pairs are the pairs covered by the 10 keys shown. Total pairs are all unique matched record pairs in this run.'
-        );
-        refreshTooltips();
-      }
       return;
     }
 
     const counts = topKeys.map((item) => (typeof item[1] === 'number' ? item[1] : 0));
     const maxCount = Math.max(...counts, 1);
     const top10Total = counts.reduce((acc, value) => acc + value, 0);
-    const totalPairs =
-      typeof run.top_match_keys_total_pairs === 'number' && run.top_match_keys_total_pairs > 0
-        ? run.top_match_keys_total_pairs
-        : top10Total;
-    const coveragePct = totalPairs > 0 ? (top10Total / totalPairs) * 100 : null;
-    if (totalEl) {
-      totalEl.innerHTML = `<span>Top 10: ${fmtInt(top10Total)}</span><span>Total pairs: ${fmtInt(totalPairs)}</span>`;
-    }
-    if (totalInfoEl) {
-      const coverageText = typeof coveragePct === 'number' ? `${coveragePct.toFixed(2)}%` : 'n/a';
-      setTooltipText(
-        totalInfoEl,
-        `Top 10 pairs are the sum of pairs covered by the 10 keys shown (${fmtInt(top10Total)}). Total pairs are all unique matched record pairs in this run (${fmtInt(totalPairs)}). Top 10 coverage: ${coverageText}.`
-      );
-      refreshTooltips();
-    }
 
     container.innerHTML = topKeys
       .map((item, index) => {
@@ -471,7 +469,6 @@
                 <div class="match-key-fill" style="width:${widthPct.toFixed(2)}%"></div>
               </div>
             </div>
-            <div class="match-key-count">${fmtInt(count)}</div>
           </div>
         `;
       })
@@ -483,9 +480,7 @@
     if (!run) {
       byId('inputRecordsValue').textContent = 'n/a';
       byId('executionMinutesValue').textContent = 'n/a';
-      if (byId('matchKeyTotalValue')) {
-        byId('matchKeyTotalValue').innerHTML = '<span>Top 10: n/a</span><span>Total pairs: n/a</span>';
-      }
+      byId('theirMatchGainLossValue').textContent = 'n/a';
       byId('ourMetricCards').innerHTML =
         '<div class="col-12"><div class="alert alert-warning">No data available for selected run.</div></div>';
       byId('theirMetricCards').innerHTML =
@@ -499,9 +494,7 @@
   function renderEmptyState() {
     byId('inputRecordsValue').textContent = 'n/a';
     byId('executionMinutesValue').textContent = 'n/a';
-    if (byId('matchKeyTotalValue')) {
-      byId('matchKeyTotalValue').innerHTML = '<span>Top 10: n/a</span><span>Total pairs: n/a</span>';
-    }
+    byId('theirMatchGainLossValue').textContent = 'n/a';
     byId('ourMetricCards').innerHTML =
       '<div class="col-12"><div class="alert alert-warning">Selected run details will appear here after the first successful run.</div></div>';
     byId('theirMetricCards').innerHTML =
