@@ -342,6 +342,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip verify_dashboard_metrics cross-check after rebuild",
     )
+    parser.add_argument(
+        "--all-runs",
+        action="store_true",
+        help="Use all runs found under output root (default behavior uses only the latest run)",
+    )
+    parser.add_argument(
+        "--streamlit-assets-dir",
+        default="dashboard/streamlit_app/assets",
+        help="Streamlit assets directory under MVP root to refresh from dashboard assets",
+    )
+    parser.add_argument(
+        "--skip-streamlit-sync",
+        action="store_true",
+        help="Skip syncing dashboard assets/data into the Streamlit assets directory",
+    )
     return parser.parse_args()
 
 
@@ -1411,6 +1426,29 @@ def write_index_html(target_dir: Path) -> None:
     (target_dir / "index.html").write_text(index_html, encoding="utf-8")
 
 
+def sync_streamlit_assets(
+    dashboard_dir: Path,
+    data_js_path: Path,
+    streamlit_assets_dir: Path,
+) -> None:
+    streamlit_assets_dir.mkdir(parents=True, exist_ok=True)
+    assets_to_copy = [
+        "management_dashboard.html",
+        "management_dashboard.css",
+        "management_dashboard.js",
+        "tabler.min.css",
+        "tabler.min.js",
+        "chart.umd.js",
+    ]
+    for asset_name in assets_to_copy:
+        source_path = dashboard_dir / asset_name
+        if source_path.exists():
+            shutil.copy2(source_path, streamlit_assets_dir / asset_name)
+
+    if data_js_path.exists():
+        shutil.copy2(data_js_path, streamlit_assets_dir / "management_dashboard_data.js")
+
+
 def run_dashboard_test_suite(mvp_root: Path, output_root: Path, dashboard_dir: Path) -> None:
     testing_dir = mvp_root / "testing"
     testing_dir.mkdir(parents=True, exist_ok=True)
@@ -1463,6 +1501,7 @@ def main() -> int:
     output_root = (mvp_root / args.output_root).resolve()
     dashboard_dir = (mvp_root / args.dashboard_dir).resolve()
     dashboard_template_dir = resolve_dashboard_template_dir(mvp_root=mvp_root, dashboard_dir=dashboard_dir)
+    streamlit_assets_dir = (mvp_root / args.streamlit_assets_dir).resolve()
     data_js_path = dashboard_dir / "management_dashboard_data.js"
 
     if not output_root.exists():
@@ -1472,6 +1511,8 @@ def main() -> int:
     write_index_html(dashboard_dir)
 
     runs = collect_runs(output_root)
+    if not args.all_runs and runs:
+        runs = [runs[0]]
     payload = {
         "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
         "output_root": str(output_root),
@@ -1481,9 +1522,19 @@ def main() -> int:
 
     write_data_js(data_js_path, payload)
     write_dashboard_flat_exports(dashboard_dir=dashboard_dir, payload=payload)
+    if not args.skip_streamlit_sync:
+        sync_streamlit_assets(
+            dashboard_dir=dashboard_dir,
+            data_js_path=data_js_path,
+            streamlit_assets_dir=streamlit_assets_dir,
+        )
     print(f"Dashboard data generated: {data_js_path}")
     print(f"Dashboard data JSON: {dashboard_dir / 'management_dashboard_data.json'}")
     print(f"Dashboard runs CSV: {dashboard_dir / 'management_dashboard_runs.csv'}")
+    if not args.all_runs and runs:
+        print(f"Using latest run only: {runs[0]['run_id']}")
+    if not args.skip_streamlit_sync:
+        print(f"Streamlit assets synced: {streamlit_assets_dir}")
     print(f"Runs indexed: {len(runs)}")
     print(f"Dashboard directory: {dashboard_dir}")
 
