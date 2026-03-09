@@ -70,7 +70,7 @@ The variables are used throughout the installation procedure.
 
 ```console
 export GIT_ACCOUNT=senzing
-export GIT_REPOSITORY=mapper-ai
+export GIT_REPOSITORY=entity-forge
 ```
 
 Synthesize environment variables.

@@ -1,7 +1,7 @@
 [project]
-name = "mapper-ai"
+name = "entity-forge"
 version = "1.2.8"
-description = "mapper-ai"
+description = "entity-forge"
 authors = [{ name = "senzing", email = "support@senzing.com" }]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,9 +17,9 @@ license-files = [
 ]
 
 [project.urls]
-bugtracker = "https://github.com/smartest-developments/entityforge-core/issues"
-changelog = "https://github.com/smartest-developments/entityforge-core/blob/main/project_meta/CHANGELOG.md"
-source = "https://github.com/smartest-developments/entityforge-core"
+bugtracker = "https://github.com/smartest-developments/entity-forge/issues"
+changelog = "https://github.com/smartest-developments/entity-forge/blob/main/project_meta/CHANGELOG.md"
+source = "https://github.com/smartest-developments/entity-forge"
 
 [build-system]
 requires = ["setuptools>=80", "wheel"]
@@ -132,6 +132,6 @@ disable = [
   "unspecified-encoding",
   "unused-argument",
 ]
-good-names = ["mapper-ai"]
+good-names = ["entity-forge"]
 ignore = ["__init__.py", "docs/source/conf.py"]
 notes = ["FIXME"]

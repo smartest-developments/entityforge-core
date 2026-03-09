@@ -191,7 +191,7 @@ What it does:
 
 Commands:
 ```bash
-cd /Users/simones/Developer/entityforge-core
+cd /Users/simones/Developer/entity-forge
 bash app.sh
 ```
 

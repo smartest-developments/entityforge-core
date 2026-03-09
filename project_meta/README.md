@@ -1,4 +1,4 @@
-# EntityForge Core
+# Entity Forge
 
 Repository for Senzing mapping and core evaluation workflows.
 
