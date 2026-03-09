@@ -3,12 +3,6 @@
 ## 1) Purpose
 This project evaluates entity resolution quality and operational feasibility using Senzing on large partner datasets.
 
-The business goal is simple:
-- measure matching quality,
-- compare our baseline logic vs Senzing,
-- provide auditable outputs for management,
-- prepare a production-ready runbook.
-
 ## 2) What We Built
 We implemented an end-to-end pipeline that:
 1. accepts a source JSON file,

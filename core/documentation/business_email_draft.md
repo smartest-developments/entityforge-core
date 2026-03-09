@@ -7,7 +7,7 @@ Hi all,
 We completed the latest PoC run, you can find here our result and feedback:
 
 ## Key Numbers (latest run)
-- Input records loaded: `1M`
+- Input records loaded: ~ `1M`
 - Full execution time: `462.25 minutes` (~`8 hours`)
 - Our match found: `33.58%`
 - Their match found (Senzing): `26.80%`
