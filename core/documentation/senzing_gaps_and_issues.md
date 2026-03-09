@@ -25,7 +25,6 @@ Practical limitations and issues encountered during this PoC, based on real runs
 ## Functional Gaps
 1. Out-of-the-box behavior is not always "one-click stable" at high scale in constrained environments.
 2. Additional wrapper logic is required for robust production execution (retry/fallback/diagnostics).
-3. KPI interpretation still needs domain framing (precision vs recall trade-off).
 
 ## Mitigations Implemented in This Project
 - Split load into ordered files
