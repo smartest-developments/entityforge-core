@@ -22,11 +22,14 @@ tests/icij/full-oldb.LATEST.zip
 tests/icij/relationships.csv
 
 # Retired reference files (kept locally for reference)
-senzing/senzing_mcp_reference.md
+S3Z/senzing_mcp_reference.md
 
 # Generated realistic samples and mapped outputs (kept locally)
 sample/*
 output/*
+core/sample_input/*
+core/output/*
+!core/output/.gitkeep
 
 # Local Senzing runtime artifacts
 .senzing_projects_test/

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$ROOT_DIR/MVP/dashboard/streamlit_app"
+APP_DIR="$ROOT_DIR/core/dashboard/streamlit_app"
 
 PORT="${PORT:-${DOMINO_PORT:-8000}}"
 HOST="${HOST:-0.0.0.0}"
