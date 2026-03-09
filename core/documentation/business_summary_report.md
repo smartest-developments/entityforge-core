@@ -1,4 +1,4 @@
-# Business Summary Report: Senzing Core
+# Summary Report: Senzing Core
 
 ## 1) Purpose
 This project evaluates entity resolution quality and operational feasibility using Senzing on large partner datasets.
@@ -37,8 +37,6 @@ The dashboard/reporting focuses on:
 - records loaded,
 - entities formed,
 - match found percentage,
-- false positive / miss-matched indicators,
-- gain/loss indicators for comparisons,
 - top matching keys,
 - entity size distribution.
 
@@ -78,7 +76,7 @@ To keep runs reliable, we added progressive safeguards:
 6. Workspace cleanup utility:
 - cleanup script resets runtime/output clutter while keeping essential inputs.
 
-## 7) Practical Example (Business-Friendly)
+## 7) Practical Example
 Example run behavior:
 - File 1/1037 loaded in 10.5s
 - File 2/1037 loaded in 20.1s
@@ -111,9 +109,4 @@ The project includes Python test suites that validate:
 - dashboard payload correctness,
 - regression snapshots (optional strict mode).
 
-This gives management a defensible control layer over KPI correctness.
-
-## 10) Limitations and Next Steps
-Current limitations:
-- runtime can still be long with very conservative split sizes,
-- native engine behavior remains sensitive to data distribution.
+This gives a defensible control layer over results correctness.

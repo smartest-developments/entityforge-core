@@ -4,11 +4,11 @@ Subject: SCV Senzing PoC - Current Results, Risks, and Recommendation
 
 Hi all,
 
-We completed the latest PoC run, here our outcome
+We completed the latest PoC run, you can find here our result and feedback:
 
 ## Key Numbers (latest run)
-- Input records loaded: `1,031,617`
-- Full execution time: `462.25 minutes` (~`7.7 hours`)
+- Input records loaded: `1M`
+- Full execution time: `462.25 minutes` (~`8 hours`)
 - Our match found: `33.58%`
 - Their match found (Senzing): `26.80%`
 - Our entities formed: `785,140`
