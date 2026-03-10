@@ -7,8 +7,10 @@ set -euo pipefail
 # - PROJECT_DIR: existing Senzing project with setupEnv, bin/sz_snapshot, bin/sz_audit
 # - SNAPSHOT_CSV + AUDIT_BIN: reuse an existing sz_snapshot -A CSV and run only sz_audit
 #
-# INPUT_JSON is optional when PROJECT_DIR is provided and the script can auto-discover
-# a matching run input or mapped JSONL from run metadata.
+# INPUT_JSON is optional:
+# - if omitted and ./Senzing-Ready.json exists, that file is used
+# - otherwise, when PROJECT_DIR is provided, the script can auto-discover
+#   a matching run input or mapped JSONL from run metadata.
 #
 # Optional:
 # - OUTPUT_DIR: target folder for generated artifacts
@@ -30,6 +32,10 @@ SKIP_EMPTY_CLUSTER_ID="${SKIP_EMPTY_CLUSTER_ID:-0}"
 ARRAY_KEY="${ARRAY_KEY:-}"
 FUZZY_CUTOFF="${FUZZY_CUTOFF:-0.90}"
 SCAN_RECORDS="${SCAN_RECORDS:-500}"
+
+if [[ -z "$INPUT_JSON" && -f "$ROOT_DIR/Senzing-Ready.json" ]]; then
+  INPUT_JSON="$ROOT_DIR/Senzing-Ready.json"
+fi
 
 if [[ -z "$PROJECT_DIR" && -z "$SNAPSHOT_CSV" ]]; then
   echo "ERROR: set PROJECT_DIR or SNAPSHOT_CSV." >&2
