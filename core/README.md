@@ -142,6 +142,16 @@ Shell wrapper version:
 
 ```bash
 cd core
+PROJECT_DIR=/path/to/senzing_project \
+OUTPUT_DIR=/path/to/audit_package \
+./run_existing_project_audit.sh
+```
+
+If run metadata is available, `INPUT_JSON` can be auto-discovered from `PROJECT_DIR`.
+Otherwise pass it explicitly:
+
+```bash
+cd core
 INPUT_JSON=/path/to/production_input.jsonl \
 PROJECT_DIR=/path/to/senzing_project \
 OUTPUT_DIR=/path/to/audit_package \

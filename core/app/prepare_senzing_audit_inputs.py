@@ -22,7 +22,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Senzing project is supplied, run sz_snapshot -A plus sz_audit."
         )
     )
-    parser.add_argument("input_json", help="Input JSON/JSONL file path")
+    parser.add_argument("input_json", nargs="?", default=None, help="Input JSON/JSONL file path")
     parser.add_argument(
         "--output-dir",
         default=None,
@@ -93,6 +93,103 @@ def default_output_dir(input_path: Path) -> Path:
     return input_path.parent / f"{input_path.stem}__senzing_audit"
 
 
+def resolve_repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def candidate_runtime_roots(project_dir: Path) -> list[Path]:
+    candidates: list[Path] = []
+    for root in [project_dir.parent.parent, *project_dir.parents]:
+        if root not in candidates:
+            candidates.append(root)
+    return candidates
+
+
+def to_host_path(raw_path: str | Path, project_dir: Path) -> Path:
+    raw = str(raw_path).strip()
+    repo_root = resolve_repo_root()
+    runtime_roots = candidate_runtime_roots(project_dir)
+    runtime_root = runtime_roots[0] if runtime_roots else project_dir.parent.parent
+    if raw.startswith("/runtime/"):
+        return (runtime_root / raw.removeprefix("/runtime/")).resolve()
+    if raw.startswith("/workspace/"):
+        return (repo_root / raw.removeprefix("/workspace/")).resolve()
+    return Path(raw).expanduser().resolve()
+
+
+def discover_run_summary(project_dir: Path) -> tuple[Path | None, dict | None]:
+    for runtime_root in candidate_runtime_roots(project_dir):
+        runs_dir = runtime_root / "runs"
+        if not runs_dir.exists():
+            continue
+        summaries = sorted(runs_dir.rglob("run_summary.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+        for summary_path in summaries:
+            try:
+                payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            payload_project_dir = str(payload.get("project_dir") or "").strip()
+            if not payload_project_dir:
+                continue
+            if to_host_path(payload_project_dir, project_dir) == project_dir:
+                return summary_path, payload
+    return None, None
+
+
+def discover_input_from_project(project_dir: Path) -> tuple[Path | None, str]:
+    summary_path, payload = discover_run_summary(project_dir)
+    candidate_paths: list[tuple[Path, str]] = []
+    if payload:
+        artifacts = payload.get("artifacts", {}) if isinstance(payload.get("artifacts"), dict) else {}
+        for key, label in [
+            ("input_file", "run_summary.input_file"),
+            ("load_input_jsonl", "run_summary.artifacts.load_input_jsonl"),
+            ("normalized_jsonl", "run_summary.artifacts.normalized_jsonl"),
+        ]:
+            raw = payload.get(key) if key == "input_file" else artifacts.get(key)
+            if raw:
+                candidate_paths.append((to_host_path(raw, project_dir), label))
+
+        if summary_path:
+            run_dir = summary_path.parent
+            for rel_path, label in [
+                ("input_normalized.jsonl", "run_dir/input_normalized.jsonl"),
+            ]:
+                candidate_paths.append((run_dir / rel_path, label))
+
+    repo_root = resolve_repo_root()
+    registry_path = repo_root / "output" / "run_registry.csv"
+    if registry_path.exists():
+        try:
+            with registry_path.open("r", encoding="utf-8", newline="") as infile:
+                reader = csv.DictReader(infile)
+                rows = [
+                    row
+                    for row in reader
+                    if str(row.get("project_dir") or "").strip()
+                    and to_host_path(str(row.get("project_dir") or "").strip(), project_dir) == project_dir
+                ]
+            rows.reverse()
+            for row in rows:
+                for key, label in [
+                    ("base_input_json", "run_registry.base_input_json"),
+                    ("mapped_output_jsonl", "run_registry.mapped_output_jsonl"),
+                    ("load_input_jsonl", "run_registry.load_input_jsonl"),
+                    ("input_file", "run_registry.input_file"),
+                ]:
+                    raw = str(row.get(key) or "").strip()
+                    if raw:
+                        candidate_paths.append((to_host_path(raw, project_dir), label))
+        except OSError:
+            pass
+
+    for path, label in candidate_paths:
+        if path.exists():
+            return path, label
+
+    return None, "not found"
+
+
 def load_setup_env(setup_env_path: Path) -> dict[str, str]:
     shell_command = f"source {shlex.quote(str(setup_env_path))} >/dev/null 2>&1; env -0"
     result = subprocess.run(
@@ -124,9 +221,29 @@ def main() -> int:
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    input_path = Path(args.input_json).expanduser().resolve()
-    if not input_path.exists():
-        print(f"ERROR: Input file not found: {input_path}", file=sys.stderr)
+    project_dir = Path(args.project_dir).expanduser().resolve() if args.project_dir else None
+    audit_bin = Path(args.audit_bin).expanduser().resolve() if args.audit_bin else None
+    if audit_bin is None and project_dir is not None:
+        audit_bin = project_dir / "bin" / "sz_audit"
+
+    input_discovery_source = "explicit"
+    input_path: Path | None = None
+    if args.input_json:
+        input_path = Path(args.input_json).expanduser().resolve()
+        if not input_path.exists():
+            print(f"ERROR: Input file not found: {input_path}", file=sys.stderr)
+            return 2
+    elif project_dir:
+        input_path, input_discovery_source = discover_input_from_project(project_dir)
+        if input_path is None:
+            print(
+                "ERROR: unable to auto-discover input from PROJECT_DIR; set INPUT_JSON explicitly.",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"Auto-discovered input: {input_path} ({input_discovery_source})")
+    else:
+        print("ERROR: input_json is required unless --project-dir is supplied for auto-discovery.", file=sys.stderr)
         return 2
 
     if not 0.0 <= args.fuzzy_cutoff <= 1.0:
@@ -176,11 +293,6 @@ def main() -> int:
     except Exception as err:  # pylint: disable=broad-exception-caught
         print(f"ERROR: Unable to prepare audit inputs: {err}", file=sys.stderr)
         return 2
-
-    project_dir = Path(args.project_dir).expanduser().resolve() if args.project_dir else None
-    audit_bin = Path(args.audit_bin).expanduser().resolve() if args.audit_bin else None
-    if audit_bin is None and project_dir is not None:
-        audit_bin = project_dir / "bin" / "sz_audit"
 
     snapshot_csv: Path | None = None
     audit_csv: Path | None = None
@@ -244,6 +356,7 @@ def main() -> int:
 
     manifest = {
         "input_json": str(input_path),
+        "input_discovery_source": input_discovery_source,
         "output_dir": str(output_dir),
         "ipg_source_key": ipg_source_key or None,
         "record_cluster_csv": str(simple_csv),
