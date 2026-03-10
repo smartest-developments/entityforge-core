@@ -15,6 +15,7 @@ The repository is currently organized around the production-facing `core/` workf
 Start here:
 
 - `core/README.md`
+- `project_meta/REPOSITORY_CONTEXT_SPEC.md`
 
 ## Repository layout
 
@@ -59,3 +60,4 @@ python3 app/verify_dashboard_metrics.py
 
 - Local Senzing license files and secrets are intentionally ignored and never committed.
 - The repository name has been updated to `entity-forge`, while some historical artifacts may still reference earlier internal naming.
+- For fast repository orientation, see `project_meta/REPOSITORY_CONTEXT_SPEC.md`, `core/documentation/CORE_CONTEXT_SPEC.md`, and `S3Z/reference/S3Z_CONTEXT_SPEC.md`.

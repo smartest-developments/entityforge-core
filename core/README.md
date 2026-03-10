@@ -14,6 +14,10 @@ This core stack is now focused on a **single high-volume stress dataset**:
 - `testing/`: full automated KPI validation suite
 - `dashboard/`: offline dashboard bundle (`index.html`)
 
+For a fast operational overview, also read:
+
+- `documentation/CORE_CONTEXT_SPEC.md`
+
 ## Final results (offline, no server)
 
 If you only need to present final numbers/graphs, use:
@@ -114,6 +118,57 @@ The repository ignores `*.lic`, `*.lic_base64`, `.secrets/`, and `license/` path
 Pipeline auto-detection order:
 1. `--license-base64-file <path>`
 2. env `SENZING_LICENSE_BASE64_FILE`
+
+## Production audit inputs for Senzing
+
+When you need to compare your production clustering against a Senzing snapshot audit flow:
+
+```bash
+cd core
+python3 app/prepare_senzing_audit_inputs.py \
+  /path/to/production_input.jsonl \
+  --data-source PARTNERS \
+  --output-dir /path/to/audit_package \
+  --project-dir /path/to/senzing_project
+```
+
+This creates:
+- `record_id_cluster_id.csv`
+- `truthset_key.csv`
+- `truthset_snapshot.csv` and `truthset_snapshot.json` via `sz_snapshot -A`
+- `truthset_audit.csv` and `truthset_audit.json` via `sz_audit`
+
+Shell wrapper version:
+
+```bash
+cd core
+INPUT_JSON=/path/to/production_input.jsonl \
+PROJECT_DIR=/path/to/senzing_project \
+OUTPUT_DIR=/path/to/audit_package \
+./run_existing_project_audit.sh
+```
+
+If the snapshot already exists, reuse it:
+
+```bash
+python3 app/prepare_senzing_audit_inputs.py \
+  /path/to/production_input.jsonl \
+  --data-source PARTNERS \
+  --output-dir /path/to/audit_package \
+  --snapshot-csv /path/to/truthset_snapshot.csv \
+  --audit-bin /path/to/sz_audit
+```
+
+Shell wrapper with existing snapshot:
+
+```bash
+cd core
+INPUT_JSON=/path/to/production_input.jsonl \
+SNAPSHOT_CSV=/path/to/truthset_snapshot.csv \
+AUDIT_BIN=/path/to/sz_audit \
+OUTPUT_DIR=/path/to/audit_package \
+./run_existing_project_audit.sh
+```
 3. `core/.secrets/g2.lic_base64`
 4. `core/license/g2.lic_base64`
 

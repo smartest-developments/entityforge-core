@@ -47,7 +47,7 @@ class DashboardCrossToolConsistencyTestCase(unittest.TestCase):
 
         cmd = [
             sys.executable,
-            str(cls.mvp_root / "verify_dashboard_metrics.py"),
+            str(cls.mvp_root / "app" / "verify_dashboard_metrics.py"),
             "--output-root",
             str(cls.output_root),
             "--dashboard-data",

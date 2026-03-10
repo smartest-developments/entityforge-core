@@ -86,6 +86,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--snapshot-threads", type=int, default=1)
     parser.add_argument("--snapshot-fallback-threads", type=int, default=1)
     parser.add_argument("--disable-stream-export", action="store_true", help="Disable stream export mode")
+    parser.add_argument(
+        "--disable-large-run-tuning",
+        action="store_true",
+        help="Disable automatic large-run tuning in run_mvp_pipeline.py",
+    )
     parser.add_argument("--with-snapshot", action="store_true", help="Enable snapshot step")
     parser.add_argument("--with-why", action="store_true", help="Enable explain/why step")
     parser.add_argument(
@@ -195,6 +200,8 @@ def build_pipeline_command(args: argparse.Namespace, mvp_root: Path) -> list[str
         command.extend(["--max-failed-files", str(args.max_failed_files)])
     if args.load_file_timeout_seconds > 0:
         command.extend(["--load-file-timeout-seconds", str(args.load_file_timeout_seconds)])
+    if args.disable_large_run_tuning:
+        command.append("--disable-large-run-tuning")
     if not args.disable_stream_export:
         command.append("--stream-export")
     if args.with_snapshot:

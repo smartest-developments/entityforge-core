@@ -55,8 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-name-prefix", default="Senzing_MVP", help="Project folder prefix")
     parser.add_argument(
         "--docker-image",
-        default="mapper-senzing-poc:4.2.1",
-        help="Docker image containing Senzing tools (default: mapper-senzing-poc:4.2.1)",
+        default="senzing/sz-file-loader:latest",
+        help="Docker image containing Senzing runtime/tools (default: senzing/sz-file-loader:latest)",
     )
     parser.add_argument("--docker-platform", default="linux/amd64", help="Docker platform (default: linux/amd64)")
     parser.add_argument("--step-timeout-seconds", type=int, default=1800, help="Timeout per E2E step")
@@ -1009,6 +1009,8 @@ def main() -> int:
             "--rm",
             "--platform",
             args.docker_platform,
+            "--entrypoint",
+            "python3",
             "-v",
             f"{mvp_root}:/workspace",
             "-v",
@@ -1020,13 +1022,12 @@ def main() -> int:
             e2e_cmd.extend(
                 [
                     "-e",
-                    f"SENZING_LICENSE_STRING_BASE64={license_string}",
+                    "SENZING_LICENSE_STRING_BASE64",
                 ]
             )
         e2e_cmd.extend(
             [
             args.docker_image,
-            "python3",
             "/workspace/app/run_senzing_end_to_end.py",
             container_mapped_input,
             "--output-root",

@@ -26,6 +26,7 @@ import json
 import os
 import shutil
 import shlex
+import sqlite3
 import subprocess
 import sys
 import time
@@ -33,6 +34,12 @@ from pathlib import Path
 from typing import Any
 
 LICENSE_STRING_ENV = "SENZING_LICENSE_STRING_BASE64"
+MODERN_SCHEMA_SQL_PATH = Path("/opt/senzing/er/resources/schema/szcore-schema-sqlite-create.sql")
+MODERN_TEMPLATE_CONFIG_PATH = Path("/opt/senzing/er/resources/templates/g2config.json")
+MODERN_LIB_DIR = Path("/opt/senzing/g2/lib")
+MODERN_RESOURCE_DIR = Path("/opt/senzing/g2/resources")
+MODERN_DATA_DIR = Path("/opt/senzing/data")
+MODERN_ETC_DIR = Path("/etc/opt/senzing")
 
 
 def now_timestamp() -> str:
@@ -262,8 +269,6 @@ def build_shell_prefix(
     parts = [f"source {shlex.quote(str(project_setup_env))} >/dev/null 2>&1"]
     if engine_config_json:
         parts.append(f"export SENZING_ENGINE_CONFIGURATION_JSON={shlex.quote(engine_config_json)}")
-    if license_string:
-        parts.append(f"export {LICENSE_STRING_ENV}={shlex.quote(license_string)}")
     return " && ".join(parts) + " && "
 
 
@@ -343,12 +348,14 @@ def load_setup_env(project_setup_env: Path, license_string: str | None = None) -
         env_map[key.decode("utf-8", errors="replace")] = value.decode("utf-8", errors="replace")
 
     if license_string:
-        existing = env_map.get("SENZING_ENGINE_CONFIGURATION_JSON", "").strip()
-        if not existing:
-            existing = build_engine_config_json(project_setup_env.parent)
-        env_map["SENZING_ENGINE_CONFIGURATION_JSON"] = merge_license_into_engine_config(existing, license_string)
         env_map[LICENSE_STRING_ENV] = license_string
     return env_map
+
+
+def sqlite_connection_url(db_path: Path) -> str:
+    """Build SQLite connection URL accepted by Senzing."""
+    absolute = str(db_path.resolve())
+    return f"sqlite3://na:na@{absolute}"
 
 
 def build_engine_config_json(project_dir: Path) -> str:
@@ -360,10 +367,363 @@ def build_engine_config_json(project_dir: Path) -> str:
             "RESOURCEPATH": str(project_dir / "resources"),
         },
         "SQL": {
-            "CONNECTION": f"sqlite3://na:na@/{project_dir / 'var' / 'sqlite' / 'G2C.db'}",
+            "CONNECTION": sqlite_connection_url(project_dir / "var" / "sqlite" / "G2C.db"),
         },
     }
     return json.dumps(payload)
+
+
+def build_modern_engine_config_json(project_dir: Path, license_string: str | None = None) -> str:
+    """Build engine settings for modern SDK containers using shared runtime paths."""
+    payload = {
+        "PIPELINE": {
+            "CONFIGPATH": str(MODERN_ETC_DIR),
+            "SUPPORTPATH": str(MODERN_DATA_DIR),
+            "RESOURCEPATH": str(MODERN_RESOURCE_DIR),
+        },
+        "SQL": {
+            "CONNECTION": sqlite_connection_url(project_dir / "var" / "sqlite" / "G2C.db"),
+        },
+    }
+    if license_string:
+        payload["PIPELINE"]["LICENSESTRINGBASE64"] = license_string
+    return json.dumps(payload, separators=(",", ":"))
+
+
+def ensure_link(target: Path, link_path: Path) -> str:
+    """Create or refresh a symlink for project compatibility paths."""
+    if link_path.exists() or link_path.is_symlink():
+        try:
+            current = link_path.resolve()
+            if current == target.resolve():
+                return "existing"
+        except OSError:
+            pass
+        if link_path.is_dir() and not link_path.is_symlink():
+            shutil.rmtree(link_path)
+        else:
+            link_path.unlink()
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    link_path.symlink_to(target, target_is_directory=target.is_dir())
+    return "created"
+
+
+def write_modern_setup_env(project_dir: Path, engine_config_json: str) -> Path:
+    """Write setupEnv compatible with shell-based steps and SDK explain."""
+    setup_env = project_dir / "setupEnv"
+    content = f"""#!/usr/bin/env bash
+export SENZING_ROOT=/opt/senzing
+export SENZING_ETC_PATH={shlex.quote(str(MODERN_ETC_DIR))}
+export SENZING_DATA_DIR={shlex.quote(str(MODERN_DATA_DIR))}
+export SENZING_G2_DIR=/opt/senzing/g2
+export PATH=/opt/senzing/er/bin:$PATH
+export PYTHONPATH=/opt/senzing/er/sdk/python:/opt/senzing/g2/sdk/python:/opt/senzing/g2/python${{PYTHONPATH:+:$PYTHONPATH}}
+export LD_LIBRARY_PATH={shlex.quote(str(MODERN_LIB_DIR))}${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}
+export SENZING_PROJECT_FLAVOR=modern_sdk
+export SENZING_ENGINE_CONFIGURATION_JSON={shlex.quote(engine_config_json)}
+"""
+    setup_env.write_text(content, encoding="utf-8")
+    setup_env.chmod(0o755)
+    return setup_env
+
+
+def embed_license_in_setup_env(project_setup_env: Path, project_dir: Path, license_string: str) -> None:
+    """Persist license into setupEnv so Senzing CLI tools can pick it up without logging the secret."""
+    marker_start = "# BEGIN CODex SENZING LICENSE BLOCK"
+    marker_end = "# END CODex SENZING LICENSE BLOCK"
+    existing = project_setup_env.read_text(encoding="utf-8") if project_setup_env.exists() else "#!/usr/bin/env bash\n"
+    if marker_start in existing and marker_end in existing:
+        prefix, remainder = existing.split(marker_start, 1)
+        _, suffix = remainder.split(marker_end, 1)
+        existing = prefix.rstrip() + "\n" + suffix.lstrip("\n")
+    engine_config_json = merge_license_into_engine_config(build_engine_config_json(project_dir), license_string)
+    block = (
+        f"{marker_start}\n"
+        f"export {LICENSE_STRING_ENV}={shlex.quote(license_string)}\n"
+        f"export SENZING_ENGINE_CONFIGURATION_JSON={shlex.quote(engine_config_json)}\n"
+        f"{marker_end}\n"
+    )
+    updated = existing.rstrip() + "\n" + block
+    project_setup_env.write_text(updated, encoding="utf-8")
+    project_setup_env.chmod(0o700)
+
+
+def initialize_modern_sqlite_schema(db_path: Path) -> None:
+    """Initialize SQLite schema used by modern SDK runtime."""
+    if not MODERN_SCHEMA_SQL_PATH.exists():
+        raise FileNotFoundError(f"Schema file not found: {MODERN_SCHEMA_SQL_PATH}")
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    if db_path.exists():
+        db_path.unlink()
+    sql_text = MODERN_SCHEMA_SQL_PATH.read_text(encoding="utf-8")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(sql_text)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def create_modern_factory(settings_json: str) -> Any:
+    """Create modern SDK abstract factory."""
+    from senzing_core import SzAbstractFactoryCore  # type: ignore
+
+    return SzAbstractFactoryCore("mapper_e2e", settings_json)
+
+
+def datasource_codes_from_registry(registry_json: str) -> set[str]:
+    """Extract datasource codes from registry JSON string."""
+    try:
+        payload = json.loads(registry_json)
+    except Exception:
+        return set()
+    items = payload.get("DATA_SOURCES") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return set()
+    output: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("DSRC_CODE") or "").strip()
+        if code:
+            output.add(code)
+    return output
+
+
+def command_missing(step: dict[str, Any]) -> bool:
+    """Return True when a shell step failed because the command was unavailable."""
+    stderr = str(step.get("stderr_tail") or "").lower()
+    stdout = str(step.get("stdout_tail") or "").lower()
+    combined = f"{stdout}\n{stderr}"
+    return step.get("exit_code") == 127 or "command not found" in combined or "no such file or directory" in combined
+
+
+def create_project_modern(project_dir: Path, log_path: Path, license_string: str | None = None) -> dict[str, Any]:
+    """Bootstrap a modern SDK-backed project when legacy CLI create-project is unavailable."""
+    start = time.time()
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "var" / "sqlite").mkdir(parents=True, exist_ok=True)
+    engine_config_json = build_modern_engine_config_json(project_dir, license_string=license_string)
+
+    link_results = {
+        "lib": ensure_link(MODERN_LIB_DIR, project_dir / "lib"),
+        "resources": ensure_link(MODERN_RESOURCE_DIR, project_dir / "resources"),
+        "data": ensure_link(MODERN_DATA_DIR, project_dir / "data"),
+        "etc": ensure_link(MODERN_ETC_DIR, project_dir / "etc"),
+    }
+    db_path = project_dir / "var" / "sqlite" / "G2C.db"
+    initialize_modern_sqlite_schema(db_path)
+    write_modern_setup_env(project_dir, engine_config_json)
+
+    template_json = MODERN_TEMPLATE_CONFIG_PATH.read_text(encoding="utf-8")
+    factory = create_modern_factory(engine_config_json)
+    try:
+        config_manager = factory.create_configmanager()
+        config = config_manager.create_config_from_string(template_json)
+        config_id = config_manager.register_config(config.export(), "bootstrap modern sdk project")
+        config_manager.set_default_config_id(config_id)
+    finally:
+        factory.destroy()
+
+    duration = round(time.time() - start, 3)
+    log_lines = [
+        "STEP: create_project",
+        f"MODE: modern_sdk",
+        f"PROJECT_DIR: {project_dir}",
+        f"DB_PATH: {db_path}",
+        f"SETUP_ENV: {project_dir / 'setupEnv'}",
+        f"DURATION_SECONDS: {duration}",
+        "",
+        "--- LINK RESULTS ---",
+        json.dumps(link_results, indent=2, ensure_ascii=False),
+        "",
+        "--- ENGINE CONFIG ---",
+        engine_config_json,
+    ]
+    log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+    return {
+        "step": "create_project",
+        "ok": True,
+        "exit_code": 0,
+        "duration_seconds": duration,
+        "log_file": str(log_path),
+        "stdout_tail": "modern_sdk bootstrap completed",
+        "stderr_tail": "",
+        "mode": "modern_sdk",
+    }
+
+
+def configure_data_source_modern(
+    project_dir: Path,
+    data_source: str,
+    log_path: Path,
+    license_string: str | None = None,
+) -> dict[str, Any]:
+    """Configure a datasource through the modern SDK config manager."""
+    start = time.time()
+    engine_config_json = build_modern_engine_config_json(project_dir, license_string=license_string)
+    template_json = MODERN_TEMPLATE_CONFIG_PATH.read_text(encoding="utf-8")
+    factory = create_modern_factory(engine_config_json)
+    created = False
+    existing_codes: set[str] = set()
+    config_id = None
+    try:
+        config_manager = factory.create_configmanager()
+        try:
+            default_config_id = config_manager.get_default_config_id()
+        except Exception:
+            default_config_id = 0
+        if default_config_id:
+            config = config_manager.create_config_from_config_id(default_config_id)
+        else:
+            config = config_manager.create_config_from_string(template_json)
+        existing_codes = datasource_codes_from_registry(config.get_data_source_registry())
+        if data_source not in existing_codes:
+            config.register_data_source(data_source)
+            config_id = config_manager.register_config(config.export(), f"add datasource {data_source}")
+            config_manager.set_default_config_id(config_id)
+            created = True
+    finally:
+        factory.destroy()
+
+    duration = round(time.time() - start, 3)
+    log_payload = {
+        "step": f"configure_data_source_{data_source}",
+        "mode": "modern_sdk",
+        "data_source": data_source,
+        "created": created,
+        "config_id": config_id,
+        "existing_data_sources": sorted(existing_codes),
+        "duration_seconds": duration,
+    }
+    log_path.write_text(json.dumps(log_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {
+        "step": f"configure_data_source_{data_source}",
+        "ok": True,
+        "exit_code": 0,
+        "duration_seconds": duration,
+        "log_file": str(log_path),
+        "stdout_tail": "created" if created else "already_exists",
+        "stderr_tail": "",
+        "mode": "modern_sdk",
+    }
+
+
+def export_csv_modern(
+    project_dir: Path,
+    export_file: Path,
+    log_path: Path,
+    license_string: str | None = None,
+) -> dict[str, Any]:
+    """Export entity report to CSV through the modern SDK."""
+    start = time.time()
+    from senzing import SzEngineFlags  # type: ignore
+
+    engine_config_json = build_modern_engine_config_json(project_dir, license_string=license_string)
+    factory = create_modern_factory(engine_config_json)
+    rows_written = 0
+    try:
+        engine = factory.create_engine()
+        flags = int(
+            SzEngineFlags.SZ_EXPORT_INCLUDE_SINGLE_RECORD_ENTITIES
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_MULTI_RECORD_ENTITIES
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_SAME
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_RELATED
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_NAME_ONLY
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_DISCLOSED
+        )
+        handle = engine.export_csv_entity_report(
+            "RESOLVED_ENTITY_ID,DATA_SOURCE,RECORD_ID,MATCH_LEVEL,MATCH_KEY",
+            flags,
+        )
+        export_file.parent.mkdir(parents=True, exist_ok=True)
+        with export_file.open("w", encoding="utf-8", newline="") as outfile:
+            while True:
+                row = engine.fetch_next(handle)
+                if not row:
+                    break
+                outfile.write(row.rstrip("\n") + "\n")
+                rows_written += 1
+        engine.close_export_report(handle)
+    finally:
+        factory.destroy()
+
+    duration = round(time.time() - start, 3)
+    log_payload = {
+        "step": "export",
+        "mode": "modern_sdk",
+        "export_file": str(export_file),
+        "rows_written": rows_written,
+        "duration_seconds": duration,
+    }
+    log_path.write_text(json.dumps(log_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {
+        "step": "export",
+        "ok": export_file.exists() and rows_written > 0,
+        "exit_code": 0,
+        "duration_seconds": duration,
+        "log_file": str(log_path),
+        "stdout_tail": f"rows_written={rows_written}",
+        "stderr_tail": "",
+        "mode": "modern_sdk",
+    }
+
+
+def snapshot_modern(
+    project_dir: Path,
+    snapshot_json: Path,
+    log_path: Path,
+    license_string: str | None = None,
+) -> dict[str, Any]:
+    """Generate a JSON entity snapshot through the modern SDK."""
+    start = time.time()
+    from senzing import SzEngineFlags  # type: ignore
+
+    engine_config_json = build_modern_engine_config_json(project_dir, license_string=license_string)
+    factory = create_modern_factory(engine_config_json)
+    rows_written = 0
+    try:
+        engine = factory.create_engine()
+        flags = int(
+            SzEngineFlags.SZ_EXPORT_INCLUDE_SINGLE_RECORD_ENTITIES
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_MULTI_RECORD_ENTITIES
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_SAME
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_RELATED
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_NAME_ONLY
+            | SzEngineFlags.SZ_EXPORT_INCLUDE_DISCLOSED
+        )
+        handle = engine.export_json_entity_report(flags)
+        snapshot_json.parent.mkdir(parents=True, exist_ok=True)
+        with snapshot_json.open("w", encoding="utf-8") as outfile:
+            while True:
+                row = engine.fetch_next(handle)
+                if not row:
+                    break
+                outfile.write(row.rstrip("\n") + "\n")
+                rows_written += 1
+        engine.close_export_report(handle)
+    finally:
+        factory.destroy()
+
+    duration = round(time.time() - start, 3)
+    log_payload = {
+        "step": "snapshot",
+        "mode": "modern_sdk",
+        "snapshot_json": str(snapshot_json),
+        "rows_written": rows_written,
+        "duration_seconds": duration,
+    }
+    log_path.write_text(json.dumps(log_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {
+        "step": "snapshot",
+        "ok": snapshot_json.exists() and rows_written > 0,
+        "exit_code": 0,
+        "duration_seconds": duration,
+        "log_file": str(log_path),
+        "stdout_tail": f"rows_written={rows_written}",
+        "stderr_tail": "",
+        "mode": "modern_sdk",
+    }
 
 
 def preload_senzing_library(project_dir: Path) -> dict[str, Any]:
@@ -639,7 +999,12 @@ def write_sdk_log(
     log_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def create_project(project_dir: Path, base_setup_env: Path | None, log_path: Path) -> dict[str, Any]:
+def create_project(
+    project_dir: Path,
+    base_setup_env: Path | None,
+    log_path: Path,
+    license_string: str | None = None,
+) -> dict[str, Any]:
     """Create an isolated project, trying preferred Senzing commands first."""
     project_dir.parent.mkdir(parents=True, exist_ok=True)
     quoted_project = shlex.quote(str(project_dir))
@@ -697,6 +1062,20 @@ def create_project(project_dir: Path, base_setup_env: Path | None, log_path: Pat
 
             combined_log["stdout_tail"] = (result.stdout or "")[-1200:]
             combined_log["stderr_tail"] = (result.stderr or "")[-1200:]
+
+    if not combined_log["ok"]:
+        modern_ready = MODERN_SCHEMA_SQL_PATH.exists() and MODERN_TEMPLATE_CONFIG_PATH.exists()
+        if modern_ready:
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write("\n--- FALLBACK modern_sdk ---\n")
+            try:
+                modern_step = create_project_modern(project_dir, log_path, license_string=license_string)
+                modern_step["duration_seconds"] = round(time.time() - start, 3)
+                return modern_step
+            except Exception as err:  # pylint: disable=broad-exception-caught
+                with log_path.open("a", encoding="utf-8") as log:
+                    log.write(f"MODERN_FALLBACK_ERROR: {err}\n")
+                combined_log["stderr_tail"] = f"{combined_log['stderr_tail']}\nmodern_fallback: {err}".strip()[-1200:]
 
     combined_log["duration_seconds"] = round(time.time() - start, 3)
     return combined_log
@@ -2477,7 +2856,7 @@ def main() -> int:
     steps: list[dict[str, Any]] = []
     runtime_warnings: list[str] = []
 
-    step = create_project(project_dir, base_setup_env, logs_dir / "00_create_project.log")
+    step = create_project(project_dir, base_setup_env, logs_dir / "00_create_project.log", license_string=license_string)
     steps.append(step)
     if not step["ok"] or not project_setup_env.exists():
         summary = {
@@ -2491,6 +2870,22 @@ def main() -> int:
         summary_file.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print("FAILED at create_project", file=sys.stderr)
         return 1
+
+    if license_string:
+        try:
+            embed_license_in_setup_env(project_setup_env, project_dir, license_string)
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            summary = {
+                "overall_ok": False,
+                "error": f"unable to persist license into setupEnv: {err}",
+                "run_directory": str(run_dir),
+                "project_dir": str(project_dir),
+                "runtime_warnings": runtime_warnings,
+                "steps": steps,
+            }
+            summary_file.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            print("FAILED updating setupEnv with license", file=sys.stderr)
+            return 1
 
     project_env = load_setup_env(project_setup_env, license_string=license_string)
     if not project_env:
@@ -2507,7 +2902,8 @@ def main() -> int:
         return 1
     if not license_string:
         runtime_warnings.append("No Senzing license string detected (evaluation limits may apply).")
-    runtime_engine_config = project_env.get("SENZING_ENGINE_CONFIGURATION_JSON", "").strip() or None
+    runtime_engine_config = None
+    project_runtime_flavor = project_env.get("SENZING_PROJECT_FLAVOR", "").strip() or "legacy_cli"
 
     for index, data_source in enumerate(data_sources, start=1):
         cfg_file = config_scripts_dir / f"add_{data_source}.g2c"
@@ -2526,6 +2922,17 @@ def main() -> int:
             logs_dir / f"01_configure_{index:02d}_{data_source}.log",
             timeout_seconds=args.step_timeout_seconds,
         )
+        if not step["ok"] and command_missing(step):
+            step = configure_data_source_modern(
+                project_dir=project_dir,
+                data_source=data_source,
+                log_path=logs_dir / f"01_configure_{index:02d}_{data_source}.log",
+                license_string=license_string,
+            )
+            project_runtime_flavor = "modern_sdk"
+            runtime_warnings.append(
+                f"configure_data_source_{data_source} used modern SDK fallback."
+            )
         steps.append(step)
         if not step["ok"]:
             stdout = (step.get("stdout_tail") or "").lower()
@@ -2846,8 +3253,20 @@ def main() -> int:
                 if attempt_index > 0:
                     runtime_warnings.append(
                         f"snapshot primary attempt failed; fallback '{attempt_mode}' succeeded."
-                    )
+                )
                 snapshot_ok = True
+                break
+            if command_missing(step):
+                step = snapshot_modern(
+                    project_dir=project_dir,
+                    snapshot_json=snapshot_json,
+                    log_path=logs_dir / "03_snapshot.log",
+                    license_string=license_string,
+                )
+                project_runtime_flavor = "modern_sdk"
+                runtime_warnings.append("snapshot used modern SDK fallback.")
+                steps.append(step)
+                snapshot_ok = step["ok"]
                 break
 
         if not snapshot_ok:
@@ -2863,9 +3282,10 @@ def main() -> int:
             print("FAILED at snapshot", file=sys.stderr)
             return 1
 
-        candidates = sorted(run_dir.glob("snapshot*.json"))
-        if candidates:
-            candidates[0].replace(snapshot_json)
+        if not snapshot_json.exists():
+            candidates = sorted(run_dir.glob("snapshot*.json"))
+            if candidates:
+                candidates[0].replace(snapshot_json)
 
     use_stream_export = (
         args.stream_export and (not args.skip_export) and args.skip_explain and (not args.skip_comparison)
@@ -2875,6 +3295,11 @@ def main() -> int:
             "--stream-export requested but requirements not met (needs --skip-explain and comparison enabled); "
             "falling back to file export."
         )
+    elif use_stream_export and project_runtime_flavor == "modern_sdk":
+        runtime_warnings.append(
+            "--stream-export requested under modern SDK runtime; falling back to file export."
+        )
+        use_stream_export = False
 
     if use_stream_export:
         step, stream_artifacts = stream_export_to_comparison_outputs(
@@ -2917,6 +3342,15 @@ def main() -> int:
             logs_dir / "04_export.log",
             timeout_seconds=args.step_timeout_seconds,
         )
+        if not step["ok"] and command_missing(step):
+            step = export_csv_modern(
+                project_dir=project_dir,
+                export_file=export_file,
+                log_path=logs_dir / "04_export.log",
+                license_string=license_string,
+            )
+            project_runtime_flavor = "modern_sdk"
+            runtime_warnings.append("export used modern SDK fallback.")
         steps.append(step)
         if not step["ok"]:
             summary = {
@@ -3165,6 +3599,7 @@ def main() -> int:
             "stability_retries_enabled": not args.disable_stability_retries,
             "license_string_present": bool(license_string),
             "license_source": license_source,
+            "project_runtime_flavor": project_runtime_flavor,
         },
         "runtime_warnings": runtime_warnings,
         "artifacts": {
