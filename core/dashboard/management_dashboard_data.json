@@ -1,4 +1,4 @@
-window.MVP_DASHBOARD_DATA = {
+{
   "generated_at": "2026-03-10T14:51:32",
   "output_root": "/Users/simonesalvo/Developer/entityforge-core/core/output/sample_20260310_135805/sdk_probe/smoke_output",
   "runs": [
@@ -250,4 +250,4 @@ window.MVP_DASHBOARD_DATA = {
     "records_input_total": 0,
     "matched_pairs_total": 0
   }
-};
+}

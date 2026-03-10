@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-03-10T14:47:15",
+  "output_root": "/Users/simonesalvo/Developer/entityforge-core/core/core/output/sample_20260310_135805/sdk_probe/smoke_output",
+  "dashboard_data": "/Users/simonesalvo/Developer/entityforge-core/core/core/output/sample_20260310_135805/sdk_probe/smoke_dashboard_test/management_dashboard_data.js",
+  "summary": {
+    "runs_total": 0,
+    "runs_pass": 0,
+    "runs_fail": 0,
+    "runs_skip": 0
+  },
+  "runs": []
+}
