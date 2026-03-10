@@ -22,6 +22,7 @@ RUNTIME_DIR="${RUNTIME_DIR:-/mnt/mvp_runtime}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-output}"
 DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-output/diagnostics}"
 LOAD_FILE_TIMEOUT_SECONDS="${LOAD_FILE_TIMEOUT_SECONDS:-180}"
+STEP_TIMEOUT_SECONDS="${STEP_TIMEOUT_SECONDS:-28800}"
 SNAPSHOT_THREADS="${SNAPSHOT_THREADS:-1}"
 AUDIT_OUTPUT_SUBDIR="${AUDIT_OUTPUT_SUBDIR:-senzing_audit}"
 RUN_STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -40,6 +41,7 @@ PIPELINE_CMD=(
   --output-root "$OUTPUT_ROOT"
   --diagnostic-output-dir "$DIAGNOSTIC_OUTPUT_DIR"
   --output-label "$OUTPUT_LABEL"
+  --step-timeout-seconds "$STEP_TIMEOUT_SECONDS"
   --load-batch-size 1000
   --continue-on-failed-file
   --max-failed-files 50
