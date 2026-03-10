@@ -717,6 +717,25 @@ def refresh_dashboard_data(mvp_root: Path, output_root: Path) -> None:
     run_command(command, mvp_root)
 
 
+def copy_run_dashboard_bundle(output_run_dir: Path, mvp_root: Path) -> dict[str, str]:
+    """Copy the current dashboard web bundle and Streamlit app into one run folder."""
+    copied: dict[str, str] = {}
+    dashboard_source = mvp_root / "dashboard"
+    streamlit_source = dashboard_source / "streamlit_app"
+    run_dashboard_dir = output_run_dir / "dashboard_web"
+    run_streamlit_dir = output_run_dir / "dashboard_streamlit_app"
+
+    if dashboard_source.exists():
+        shutil.copytree(dashboard_source, run_dashboard_dir, dirs_exist_ok=True)
+        copied["dashboard_web"] = str(run_dashboard_dir.resolve())
+
+    if streamlit_source.exists():
+        shutil.copytree(streamlit_source, run_streamlit_dir, dirs_exist_ok=True)
+        copied["dashboard_streamlit_app"] = str(run_streamlit_dir.resolve())
+
+    return copied
+
+
 def copy_artifacts_to_output(
     output_run_dir: Path,
     mvp_root: Path,
@@ -1174,6 +1193,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return exc.returncode or 1
+        copied.update(copy_run_dashboard_bundle(output_run_dir=output_run_dir, mvp_root=mvp_root))
 
         print("\nCore pipeline completed.")
         print(f"Input JSON: {input_json}")
@@ -1181,6 +1201,8 @@ def main() -> int:
         print(f"Technical directory: {output_run_dir / 'technical output'}")
         print(f"Artifacts copied: {len(copied)}")
         print(f"Mapped JSONL: {copied.get('mapped_output.jsonl')}")
+        print(f"Run dashboard (web): {copied.get('dashboard_web')}")
+        print(f"Run dashboard (Streamlit): {copied.get('dashboard_streamlit_app')}")
         print(f"Management summary (md): {copied.get('management_summary.md')}")
         print(f"Ground truth quality (md): {copied.get('ground_truth_match_quality.md')}")
         print(f"Run summary (technical): {copied.get('run_summary.json')}")
