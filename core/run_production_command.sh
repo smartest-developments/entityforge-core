@@ -8,18 +8,113 @@ set -euo pipefail
 # - continue past failed split files (up to max-failed-files)
 # - per-file timeout to avoid long stalls
 # - ultra-small chunk fallback (100)
+# - post-run audit package generation from the same mapped_output.jsonl
 # - core dumps disabled for cleaner operations
 ulimit -c 0 || true
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+INPUT_JSON="${INPUT_JSON:-$ROOT_DIR/Senzing-Ready.json}"
+if [[ ! -f "$INPUT_JSON" && -f /mnt/Senzing-Ready.json ]]; then
+  INPUT_JSON="/mnt/Senzing-Ready.json"
+fi
+SENZING_ENV="${SENZING_ENV:-/opt/senzing/er/resources/templates/setupEnv}"
+RUNTIME_DIR="${RUNTIME_DIR:-/mnt/mvp_runtime}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-output}"
+DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-output/diagnostics}"
 LOAD_FILE_TIMEOUT_SECONDS="${LOAD_FILE_TIMEOUT_SECONDS:-180}"
+SNAPSHOT_THREADS="${SNAPSHOT_THREADS:-1}"
+AUDIT_OUTPUT_SUBDIR="${AUDIT_OUTPUT_SUBDIR:-senzing_audit}"
+RUN_STAMP="$(date '+%Y%m%d_%H%M%S')"
+OUTPUT_LABEL="${OUTPUT_LABEL:-production_${RUN_STAMP}}"
 
-python3 "$ROOT_DIR/app/run_mvp_with_auto_diagnosis.py" \
-  --input-json /mnt/Senzing-Ready.json \
-  --senzing-env /opt/senzing/er/resources/templates/setupEnv \
-  --runtime-dir /mnt/mvp_runtime \
-  --load-batch-size 1000 \
-  --continue-on-failed-file \
-  --max-failed-files 50 \
-  --load-file-timeout-seconds "$LOAD_FILE_TIMEOUT_SECONDS" \
+if [[ ! -f "$INPUT_JSON" ]]; then
+  echo "ERROR: input JSON not found: $INPUT_JSON" >&2
+  exit 2
+fi
+
+PIPELINE_CMD=(
+  python3 "$ROOT_DIR/app/run_mvp_with_auto_diagnosis.py"
+  --input-json "$INPUT_JSON"
+  --senzing-env "$SENZING_ENV"
+  --runtime-dir "$RUNTIME_DIR"
+  --output-root "$OUTPUT_ROOT"
+  --diagnostic-output-dir "$DIAGNOSTIC_OUTPUT_DIR"
+  --output-label "$OUTPUT_LABEL"
+  --load-batch-size 1000
+  --continue-on-failed-file
+  --max-failed-files 50
+  --load-file-timeout-seconds "$LOAD_FILE_TIMEOUT_SECONDS"
   --load-chunk-size 100
+  --snapshot-threads "$SNAPSHOT_THREADS"
+  --with-snapshot
+)
+
+echo "Running full production pipeline..."
+printf ' %q' "${PIPELINE_CMD[@]}"
+printf '\n'
+"${PIPELINE_CMD[@]}"
+
+export ROOT_DIR OUTPUT_ROOT OUTPUT_LABEL AUDIT_OUTPUT_SUBDIR
+RUN_OUTPUT_DIR="$(
+  python3 - <<'PY'
+import os
+from pathlib import Path
+
+root_dir = Path(os.environ["ROOT_DIR"]).resolve()
+output_root = Path(os.environ["OUTPUT_ROOT"])
+if not output_root.is_absolute():
+    output_root = (root_dir / output_root).resolve()
+label = os.environ["OUTPUT_LABEL"]
+
+candidates = sorted(
+    [path for path in output_root.glob(f"*__{label}") if path.is_dir()],
+    key=lambda path: path.stat().st_mtime,
+    reverse=True,
+)
+if not candidates:
+    raise SystemExit(1)
+print(candidates[0])
+PY
+)"
+
+RUN_SUMMARY_JSON="$RUN_OUTPUT_DIR/technical output/run_summary.json"
+MAPPED_OUTPUT_JSONL="$RUN_OUTPUT_DIR/technical output/mapped_output.jsonl"
+if [[ ! -f "$RUN_SUMMARY_JSON" ]]; then
+  echo "ERROR: run summary not found: $RUN_SUMMARY_JSON" >&2
+  exit 2
+fi
+if [[ ! -f "$MAPPED_OUTPUT_JSONL" ]]; then
+  echo "ERROR: mapped output not found: $MAPPED_OUTPUT_JSONL" >&2
+  exit 2
+fi
+
+export RUN_SUMMARY_JSON
+PROJECT_DIR="$(
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+summary_path = Path(os.environ["RUN_SUMMARY_JSON"])
+payload = json.loads(summary_path.read_text(encoding="utf-8"))
+project_dir = str(payload.get("project_dir") or "").strip()
+if not project_dir:
+    raise SystemExit(1)
+print(project_dir)
+PY
+)"
+
+AUDIT_OUTPUT_DIR="$RUN_OUTPUT_DIR/$AUDIT_OUTPUT_SUBDIR"
+
+echo "Running audit package generation..."
+INPUT_JSON="$MAPPED_OUTPUT_JSONL" \
+PROJECT_DIR="$PROJECT_DIR" \
+OUTPUT_DIR="$AUDIT_OUTPUT_DIR" \
+"$ROOT_DIR/run_existing_project_audit.sh"
+
+echo
+echo "Production pipeline + audit completed."
+echo "Run output directory: $RUN_OUTPUT_DIR"
+echo "Mapped output JSONL: $MAPPED_OUTPUT_JSONL"
+echo "Project directory: $PROJECT_DIR"
+echo "Audit output directory: $AUDIT_OUTPUT_DIR"
