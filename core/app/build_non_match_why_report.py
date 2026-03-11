@@ -6,6 +6,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
+import shlex
+import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +39,42 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--why-pair-limit", type=int, default=500, help="Maximum non-match pairs to explain with whyRecords (default: 500, 0 = skip)")
     parser.add_argument("--data-source", default="PARTNERS", help="Expected DATA_SOURCE value (default: PARTNERS)")
     return parser.parse_args()
+
+
+def resolve_repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def candidate_runtime_roots(project_dir: Path) -> list[Path]:
+    candidates: list[Path] = []
+    for root in [project_dir.parent.parent, *project_dir.parents]:
+        if root not in candidates:
+            candidates.append(root)
+    return candidates
+
+
+def containerize_path(path: Path, repo_root: Path, runtime_root: Path, extra_mount: Path) -> tuple[str, list[tuple[Path, str]]]:
+    resolved = path.resolve()
+    mounts: list[tuple[Path, str]] = []
+    try:
+        return f"/runtime/{resolved.relative_to(runtime_root).as_posix()}", mounts
+    except ValueError:
+        pass
+    try:
+        return f"/workspace/{resolved.relative_to(repo_root).as_posix()}", mounts
+    except ValueError:
+        pass
+    mounts.append((extra_mount, "/non-match-output"))
+    if resolved == extra_mount:
+        return "/non-match-output", mounts
+    return f"/non-match-output/{resolved.relative_to(extra_mount).as_posix()}", mounts
+
+
+def run_command(cmd: list[str]) -> None:
+    print("Running:", " ".join(shlex.quote(part) for part in cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed with exit code {result.returncode}")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -347,6 +386,73 @@ def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) -> 
             writer.writerow({name: row.get(name, "") for name in fieldnames})
 
 
+def run_why_with_docker(
+    *,
+    project_dir: Path,
+    requests_json: Path,
+    output_jsonl: Path,
+    data_source: str,
+) -> list[dict[str, Any]]:
+    repo_root = resolve_repo_root()
+    runtime_roots = candidate_runtime_roots(project_dir)
+    runtime_root = runtime_roots[0] if runtime_roots else project_dir.parent.parent
+    extra_mount = output_jsonl.parent
+    project_container_path, project_mounts = containerize_path(project_dir, repo_root, runtime_root, extra_mount)
+    requests_container_path, request_mounts = containerize_path(requests_json, repo_root, runtime_root, extra_mount)
+    output_container_path, output_mounts = containerize_path(output_jsonl, repo_root, runtime_root, extra_mount)
+    image = os.environ.get("SENZING_DOCKER_IMAGE", "senzing/sz-file-loader:latest")
+
+    mount_map: dict[str, str] = {
+        str(repo_root.resolve()): "/workspace",
+        str(runtime_root.resolve()): "/runtime",
+    }
+    for host_path, container_path in [*project_mounts, *request_mounts, *output_mounts]:
+        mount_map[str(host_path.resolve())] = container_path
+
+    docker_cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "python3",
+        "-v",
+        f"{repo_root.resolve()}:/workspace",
+        "-v",
+        f"{runtime_root.resolve()}:/runtime",
+        "-w",
+        "/workspace",
+    ]
+    for host_path, container_path in mount_map.items():
+        if container_path in {"/workspace", "/runtime"}:
+            continue
+        docker_cmd.extend(["-v", f"{host_path}:{container_path}"])
+
+    docker_cmd.extend(
+        [
+            image,
+            "/workspace/app/run_non_match_why_helper.py",
+            "--project-dir",
+            project_container_path,
+            "--pairs-json",
+            requests_container_path,
+            "--output-jsonl",
+            output_container_path,
+            "--data-source",
+            data_source,
+        ]
+    )
+    run_command(docker_cmd)
+    results: list[dict[str, Any]] = []
+    if output_jsonl.exists():
+        with output_jsonl.open("r", encoding="utf-8") as infile:
+            for line in infile:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                results.append(json.loads(stripped))
+    return results
+
+
 def build_html(output_dir: Path, cluster_rows: list[dict[str, Any]], record_rows: list[dict[str, Any]], explained_pair_rows: list[dict[str, Any]], summary: dict[str, Any]) -> None:
     html_path = output_dir / "index.html"
     payload = {
@@ -565,9 +671,11 @@ def main() -> int:
             project_setup_env = project_dir / "setupEnv"
         g2 = None
         factory = None
+        local_init_error = ""
         try:
             g2, factory, engine_details = init_g2_engine(project_dir, project_setup_env)
-            why_engine_status = "ok" if g2 else f"init_failed: {engine_details.get('error') or 'unknown'}"
+            local_init_error = str(engine_details.get("error") or "")
+            why_engine_status = "ok" if g2 else f"init_failed: {local_init_error or 'unknown'}"
             if g2:
                 for pair in selected_why_targets:
                     result = run_sdk_why_records(g2, args.data_source, pair.left_record_id, args.data_source, pair.right_record_id)
@@ -601,6 +709,56 @@ def main() -> int:
                     factory.destroy()
             except Exception:
                 pass
+
+        if not why_results:
+            requests_json = output_dir / "why_requests.json"
+            docker_results_jsonl = output_dir / "why_results.jsonl"
+            requests_json.write_text(
+                json.dumps(
+                    [
+                        {
+                            "cluster_id": pair.cluster_id,
+                            "left_record_id": pair.left_record_id,
+                            "right_record_id": pair.right_record_id,
+                            "left_data_source": args.data_source,
+                            "right_data_source": args.data_source,
+                        }
+                        for pair in selected_why_targets
+                    ],
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            try:
+                why_results = run_why_with_docker(
+                    project_dir=project_dir,
+                    requests_json=requests_json,
+                    output_jsonl=docker_results_jsonl,
+                    data_source=args.data_source,
+                )
+                why_engine_status = "docker_fallback_ok" if why_results else "docker_fallback_empty"
+                for enriched in why_results:
+                    row = pair_index.get(
+                        (
+                            str(enriched.get("cluster_id") or ""),
+                            str(enriched.get("left_record_id") or ""),
+                            str(enriched.get("right_record_id") or ""),
+                        )
+                    )
+                    if row is not None:
+                        row["why_records_attempted"] = 1
+                        row["why_records_ok"] = 1 if enriched.get("ok") else 0
+                        row["why_records_method"] = str(enriched.get("method") or "")
+                        row["why_records_reason_summary"] = str(enriched.get("reason_summary") or "")
+                        row["why_records_error"] = str(enriched.get("error") or "")
+            except Exception as docker_err:  # pylint: disable=broad-exception-caught
+                why_engine_status = (
+                    "init_failed: "
+                    + (local_init_error or "unknown")
+                    + f" | docker_fallback_failed: {docker_err}"
+                )
 
     explained_pair_rows = [row for row in pair_rows if int(row.get("why_records_attempted", 0)) > 0]
     summary = {
@@ -693,6 +851,8 @@ def main() -> int:
     )
 
     why_results_path = output_dir / "why_results.jsonl"
+    if why_results_path.exists():
+        why_results_path.unlink()
     with why_results_path.open("w", encoding="utf-8") as outfile:
         for item in why_results:
             outfile.write(json.dumps(item, ensure_ascii=False) + "\n")
