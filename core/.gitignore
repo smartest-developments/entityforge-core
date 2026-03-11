@@ -9,6 +9,18 @@ __pycache__/
 # Generated automated dashboard test reports
 dashboard/dashboard_test_suite_report.json
 dashboard/dashboard_test_suite_report.md
+dashboard/dashboard_data_audit_report.json
+dashboard/dashboard_data_audit_report.md
+
+# Generated dashboard runtime data (keep templates/versioned assets only)
+dashboard/index.html
+dashboard/management_dashboard_data.js
+dashboard/management_dashboard_data.json
+dashboard/management_dashboard_runs.csv
+dashboard/management_dashboard_summary.csv
+dashboard/management_dashboard_top_match_keys.csv
+dashboard/management_dashboard_entity_size_distribution.csv
+dashboard/streamlit_app/assets/management_dashboard_data.js
 
 # One-million stress sample generated locally (do not commit)
 sample_input/one_million_stress.jsonl
