@@ -113,7 +113,7 @@ printf ' %q' "${PIPELINE_CMD[@]}"
 printf '\n'
 "${PIPELINE_CMD[@]}"
 
-export ROOT_DIR OUTPUT_ROOT OUTPUT_LABEL AUDIT_OUTPUT_SUBDIR
+export ROOT_DIR OUTPUT_ROOT OUTPUT_LABEL AUDIT_OUTPUT_SUBDIR RUNTIME_DIR
 RUN_OUTPUT_DIR="$(
   python3 - <<'PY'
 import os
@@ -123,16 +123,30 @@ root_dir = Path(os.environ["ROOT_DIR"]).resolve()
 output_root = Path(os.environ["OUTPUT_ROOT"])
 if not output_root.is_absolute():
     output_root = (root_dir / output_root).resolve()
-label = os.environ["OUTPUT_LABEL"]
+runs_root = Path(os.environ["RUNTIME_DIR"]).resolve() / "runs"
 
 candidates = sorted(
+    [
+        path / "output_bundle"
+        for path in runs_root.glob("run_mvp_*")
+        if path.is_dir() and (path / "output_bundle").is_dir()
+    ],
+    key=lambda path: path.stat().st_mtime,
+    reverse=True,
+)
+if candidates:
+    print(candidates[0])
+    raise SystemExit(0)
+
+label = os.environ["OUTPUT_LABEL"]
+legacy = sorted(
     [path for path in output_root.glob(f"*__{label}") if path.is_dir()],
     key=lambda path: path.stat().st_mtime,
     reverse=True,
 )
-if not candidates:
+if not legacy:
     raise SystemExit(1)
-print(candidates[0])
+print(legacy[0])
 PY
 )"
 

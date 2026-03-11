@@ -737,7 +737,7 @@ def copy_run_dashboard_bundle(output_run_dir: Path, mvp_root: Path) -> dict[str,
 
 
 def relocate_output_bundle_to_run_dir(output_run_dir: Path, run_dir: Path, copied: dict[str, str]) -> tuple[Path, dict[str, str]]:
-    """Move the final output bundle under the runtime run directory and leave a compatibility symlink behind."""
+    """Move the final output bundle under the runtime run directory."""
     runtime_output_dir = run_dir / "output_bundle"
     if output_run_dir.resolve() == runtime_output_dir.resolve():
         return runtime_output_dir, copied
@@ -750,12 +750,6 @@ def relocate_output_bundle_to_run_dir(output_run_dir: Path, run_dir: Path, copie
             runtime_output_dir.unlink()
 
     shutil.move(str(output_run_dir), str(runtime_output_dir))
-    try:
-        output_run_dir.symlink_to(runtime_output_dir, target_is_directory=True)
-    except OSError as exc:
-        print(
-            f"WARNING: unable to create compatibility symlink {output_run_dir} -> {runtime_output_dir} ({exc})"
-        )
 
     remapped: dict[str, str] = {}
     old_prefix = str(output_run_dir.resolve())
