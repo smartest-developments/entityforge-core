@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Shared helpers for record/cluster export artifacts."""
+"""Shared helpers and CLI for record/cluster export artifacts."""
 
 from __future__ import annotations
 
+import argparse
+import csv
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -112,3 +115,153 @@ def iter_record_cluster_rows(
             )
 
     return row_iterator(), ipg_source_key
+
+
+def write_record_id_cluster_csv(
+    output_path: Path,
+    row_iter: Iterator[RecordClusterRow],
+    skip_empty_cluster_id: bool,
+) -> tuple[int, int]:
+    written_rows = 0
+    skipped_rows = 0
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as outfile:
+        writer = csv.writer(outfile)
+        writer.writerow(["record_id", "cluster_id"])
+        for row in row_iter:
+            if skip_empty_cluster_id and not row.cluster_id:
+                skipped_rows += 1
+                continue
+            writer.writerow([row.record_id, row.cluster_id or ""])
+            written_rows += 1
+    return written_rows, skipped_rows
+
+
+def write_truthset_key_csv(
+    output_path: Path,
+    row_iter: Iterator[RecordClusterRow],
+    skip_empty_cluster_id: bool,
+) -> tuple[int, int]:
+    written_rows = 0
+    skipped_rows = 0
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as outfile:
+        writer = csv.writer(outfile)
+        writer.writerow(["DATA_SOURCE", "RECORD_ID", "CLUSTER_ID"])
+        for row in row_iter:
+            if skip_empty_cluster_id and not row.cluster_id:
+                skipped_rows += 1
+                continue
+            writer.writerow([row.data_source, row.record_id, row.cluster_id or ""])
+            written_rows += 1
+    return written_rows, skipped_rows
+
+
+def default_output_path(input_path: Path, export_type: str) -> Path:
+    suffix_map = {
+        "record-id-cluster": "__cluster_record_ids.csv",
+        "truthset-key": "__truthset_key.csv",
+    }
+    try:
+        suffix = suffix_map[export_type]
+    except KeyError as err:
+        raise ValueError(f"Unsupported export type: {export_type}") from err
+    return input_path.with_name(f"{input_path.stem}{suffix}")
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Export record/cluster CSV artifacts using the same RECORD_ID logic as the mapper."
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    common_options: list[tuple[tuple[str, ...], dict[str, object]]] = [
+        (("input_json",), {"help": "Input JSON/JSONL file path"}),
+        (
+            ("output_csv",),
+            {
+                "nargs": "?",
+                "default": None,
+                "help": "Optional output CSV path. Defaults depend on the selected command.",
+            },
+        ),
+        (("--data-source",), {"default": "PARTNERS", "help": "DATA_SOURCE value used by the mapper (default: PARTNERS)"}),
+        (("--array-key",), {"default": None, "help": "Optional key if input root is an object containing an array"}),
+        (
+            ("--fuzzy-cutoff",),
+            {"type": float, "default": 0.90, "help": "Fuzzy key match threshold between 0 and 1 (default: 0.90)"},
+        ),
+        (
+            ("--scan-records",),
+            {"type": int, "default": 500, "help": "Max number of input records used for field-map inference (default: 500)"},
+        ),
+        (
+            ("--skip-empty-cluster-id",),
+            {"action": "store_true", "help": "Skip rows where IPG ID is missing or empty"},
+        ),
+    ]
+
+    for command, help_text in [
+        ("record-id-cluster", "Export a simple record_id,cluster_id CSV"),
+        ("truthset-key", "Export a Senzing audit-ready DATA_SOURCE,RECORD_ID,CLUSTER_ID CSV"),
+    ]:
+        subparser = subparsers.add_parser(command, help=help_text)
+        for args, kwargs in common_options:
+            subparser.add_argument(*args, **kwargs)
+
+    return parser
+
+
+def run_cli() -> int:
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    input_path = Path(args.input_json).expanduser().resolve()
+    if not input_path.exists():
+        print(f"ERROR: Input file not found: {input_path}", file=sys.stderr)
+        return 2
+    if not 0.0 <= args.fuzzy_cutoff <= 1.0:
+        print("ERROR: --fuzzy-cutoff must be between 0 and 1", file=sys.stderr)
+        return 2
+
+    output_path = (
+        Path(args.output_csv).expanduser().resolve()
+        if args.output_csv
+        else default_output_path(input_path, args.command).resolve()
+    )
+
+    try:
+        row_iter, ipg_source_key = iter_record_cluster_rows(
+            input_path=input_path,
+            array_key=args.array_key,
+            fuzzy_cutoff=args.fuzzy_cutoff,
+            scan_records=args.scan_records,
+            data_source=args.data_source,
+        )
+        if args.command == "record-id-cluster":
+            written_rows, skipped_rows = write_record_id_cluster_csv(
+                output_path=output_path,
+                row_iter=row_iter,
+                skip_empty_cluster_id=args.skip_empty_cluster_id,
+            )
+        else:
+            written_rows, skipped_rows = write_truthset_key_csv(
+                output_path=output_path,
+                row_iter=row_iter,
+                skip_empty_cluster_id=args.skip_empty_cluster_id,
+            )
+    except Exception as err:  # pylint: disable=broad-exception-caught
+        print(f"ERROR: Unable to export CSV: {err}", file=sys.stderr)
+        return 2
+
+    print(f"Command: {args.command}")
+    print(f"Input file: {input_path}")
+    print(f"Output CSV: {output_path}")
+    print(f"Inferred IPG source key: {ipg_source_key or '<NOT_FOUND>'}")
+    print(f"Written rows: {written_rows}")
+    print(f"Skipped rows: {skipped_rows}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(run_cli())

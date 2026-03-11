@@ -1,0 +1,28 @@
+# Repository-local Codex bootstrap hints.
+# Keep this file conservative and human-readable; do not assume unsupported runtime knobs.
+
+[repository]
+name = "entityforge-core"
+primary_area = "core"
+
+[documentation]
+entrypoint = "AGENTS.md"
+required_read_order = [
+  "core/README.md",
+  "core/documentation/CORE_CONTEXT_SPEC.md",
+  "core/documentation/PRODUCTION_RUNBOOK.md",
+  "project_meta/REPOSITORY_CONTEXT_SPEC.md",
+  "project_meta/REPOSITORY_GUARDRAILS.md",
+  "docs/specifications.md",
+  "docs/requirements.md",
+  "docs/architecture.md",
+]
+
+[validation]
+command = "./scripts/validate.sh"
+
+[conventions]
+generated_runtime_root = "configurable via RUNTIME_DIR (production default: /mnt/runtime)"
+avoid_unrelated_edits = true
+report_changed_files = true
+report_command_outcomes = true

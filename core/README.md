@@ -14,10 +14,28 @@
 - `app/run_mvp_pipeline.py`: source -> mapped JSONL -> Senzing E2E -> management outputs
 - `app/build_management_dashboard.py`: rebuilds static dashboard data + automated checks
 - `app/verify_dashboard_metrics.py`: cross-checks dashboard KPIs vs technical artifacts
+- `app/record_cluster_exports.py`: single CLI for `record_id,cluster_id` and truthset key CSV exports
 - `testing/`: full automated KPI validation suite
 - `dashboard/`: versioned dashboard template/assets only
 - `run_production_command.sh`: one-command production wrapper
 - `run_existing_project_audit.sh`: manual audit helper for already-loaded projects
+
+## App layout
+
+Top-level `app/` should stay focused on active production logic and a small set of
+operator-facing utilities.
+
+Current active areas:
+
+- pipeline orchestration: `run_mvp_pipeline.py`, `run_mvp_with_auto_diagnosis.py`, `run_senzing_end_to_end.py`
+- mapping/input prep: `partner_json_to_senzing.py`, `create_limited_input.py`, `record_cluster_exports.py`
+- reporting: `build_management_dashboard.py`, `verify_dashboard_metrics.py`
+- audit/non-match analysis: `prepare_senzing_audit_inputs.py`, `build_non_match_why_report.py`, `run_non_match_why_helper.py`
+- diagnostics/utilities: `diagnose_senzing_runtime.py`, `cleanup_working_directory.py`, `generate_sample_inputs.py`
+
+Lower-priority or historical utilities live under:
+
+- `app/legacy/`
 
 For a fast operational overview, also read:
 
