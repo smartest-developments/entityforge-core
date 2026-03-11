@@ -1,6 +1,10 @@
 # Generated artifacts
 output/*
 !output/.gitkeep
+runtime/
+runtime*/
+_limited_inputs/
+diagnostics/
 
 # Python cache
 __pycache__/

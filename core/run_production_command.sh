@@ -21,9 +21,6 @@ INPUT_RECORD_LIMIT="${INPUT_RECORD_LIMIT:-0}"
 INPUT_ARRAY_KEY="${INPUT_ARRAY_KEY:-}"
 SENZING_ENV="${SENZING_ENV:-/opt/senzing/er/resources/templates/setupEnv}"
 EXECUTION_MODE="${EXECUTION_MODE:-local}"
-RUNTIME_DIR="${RUNTIME_DIR:-/mnt/mvp_runtime}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-/mnt/_limited_inputs}"
-DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-/mnt/diagnostics}"
 LOAD_FILE_TIMEOUT_SECONDS="${LOAD_FILE_TIMEOUT_SECONDS:-180}"
 STEP_TIMEOUT_SECONDS="${STEP_TIMEOUT_SECONDS:-28800}"
 LOAD_THREADS="${LOAD_THREADS:-3}"
@@ -37,6 +34,10 @@ SNAPSHOT_THREADS="${SNAPSHOT_THREADS:-1}"
 AUDIT_OUTPUT_SUBDIR="${AUDIT_OUTPUT_SUBDIR:-senzing_audit}"
 RUN_STAMP="$(date '+%Y%m%d_%H%M%S')"
 OUTPUT_LABEL="${OUTPUT_LABEL:-production_${RUN_STAMP}}"
+RUNTIME_DIR="${RUNTIME_DIR:-/mnt/runtime}"
+STAGING_ROOT="${STAGING_ROOT:-$RUNTIME_DIR/_staging/$OUTPUT_LABEL}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$STAGING_ROOT/output_root}"
+DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-$STAGING_ROOT/diagnostics}"
 
 if [[ ! -f "$INPUT_JSON" ]]; then
   echo "ERROR: input JSON not found: $INPUT_JSON" >&2
@@ -45,19 +46,16 @@ fi
 
 PIPELINE_INPUT_JSON="$INPUT_JSON"
 if [[ "$INPUT_RECORD_LIMIT" =~ ^[0-9]+$ ]] && [[ "$INPUT_RECORD_LIMIT" -gt 0 ]]; then
-  export ROOT_DIR OUTPUT_ROOT OUTPUT_LABEL INPUT_RECORD_LIMIT
+  export STAGING_ROOT OUTPUT_LABEL INPUT_RECORD_LIMIT
   LIMITED_INPUT_JSON="$(
     python3 - <<'PY'
 import os
 from pathlib import Path
 
-root_dir = Path(os.environ["ROOT_DIR"]).resolve()
-output_root = Path(os.environ["OUTPUT_ROOT"])
-if not output_root.is_absolute():
-    output_root = (root_dir / output_root).resolve()
+staging_root = Path(os.environ["STAGING_ROOT"]).resolve()
 label = os.environ["OUTPUT_LABEL"]
 limit = os.environ["INPUT_RECORD_LIMIT"]
-target = output_root / "_limited_inputs" / f"{label}__first_{limit}.jsonl"
+target = staging_root / "_limited_inputs" / f"{label}__first_{limit}.jsonl"
 target.parent.mkdir(parents=True, exist_ok=True)
 print(target)
 PY
@@ -182,13 +180,40 @@ if [[ "$PROJECT_DIR" == /runtime/* ]]; then
 fi
 
 AUDIT_OUTPUT_DIR="$RUN_OUTPUT_DIR/$AUDIT_OUTPUT_SUBDIR"
+RUN_DIAGNOSTICS_DIR="$RUN_OUTPUT_DIR/diagnostics"
+RUN_LIMITED_INPUTS_DIR="$RUN_OUTPUT_DIR/limited_inputs"
+
+if [[ -n "${LIMITED_INPUT_JSON:-}" && -f "$LIMITED_INPUT_JSON" ]]; then
+  mkdir -p "$RUN_LIMITED_INPUTS_DIR"
+  FINAL_LIMITED_INPUT_JSON="$RUN_LIMITED_INPUTS_DIR/$(basename "$LIMITED_INPUT_JSON")"
+  mv "$LIMITED_INPUT_JSON" "$FINAL_LIMITED_INPUT_JSON"
+  PIPELINE_INPUT_JSON="$FINAL_LIMITED_INPUT_JSON"
+fi
+
+if [[ -d "$DIAGNOSTIC_OUTPUT_DIR" ]]; then
+  mkdir -p "$RUN_DIAGNOSTICS_DIR"
+  while IFS= read -r item; do
+    mv "$item" "$RUN_DIAGNOSTICS_DIR/"
+  done < <(find "$DIAGNOSTIC_OUTPUT_DIR" -mindepth 1 -maxdepth 1)
+fi
 
 echo "Running audit package generation..."
-EXECUTION_MODE="$EXECUTION_MODE" \
-INPUT_JSON="$MAPPED_OUTPUT_JSONL" \
-PROJECT_DIR="$PROJECT_DIR" \
-OUTPUT_DIR="$AUDIT_OUTPUT_DIR" \
-bash "$ROOT_DIR/run_existing_project_audit.sh"
+AUDIT_CMD=(
+  python3 "$ROOT_DIR/app/prepare_senzing_audit_inputs.py"
+  "$MAPPED_OUTPUT_JSONL"
+  --project-dir "$PROJECT_DIR"
+  --output-dir "$AUDIT_OUTPUT_DIR"
+  --data-source PARTNERS
+  --snapshot-threads "$SNAPSHOT_THREADS"
+)
+printf ' %q' "${AUDIT_CMD[@]}"
+printf '\n'
+EXECUTION_MODE="$EXECUTION_MODE" "${AUDIT_CMD[@]}"
+
+rm -rf "$STAGING_ROOT"
+if [[ -d "$(dirname "$STAGING_ROOT")" ]]; then
+  rmdir "$(dirname "$STAGING_ROOT")" 2>/dev/null || true
+fi
 
 echo
 echo "Production pipeline + audit completed."

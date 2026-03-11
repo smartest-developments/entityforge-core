@@ -47,8 +47,8 @@ It is responsible for:
 - input parsing with encoding fallback,
 - mapper execution,
 - large-run auto-tuning,
-- runtime/output folder management,
-- dashboard refresh after the run,
+- runtime/output bundle management,
+- per-run dashboard generation after the run,
 - artifact copying into final `output/`.
 
 ### Senzing engine runner
@@ -154,7 +154,7 @@ Execution scripts and operational utilities.
 
 ### `dashboard/`
 
-Static offline dashboard bundle and Streamlit copy.
+Versioned dashboard templates and static assets used to build per-run dashboard bundles.
 
 ### `testing/`
 
@@ -164,9 +164,11 @@ Automated correctness checks and helper assertions.
 
 Operational and business-facing documents for the active `core` workflow.
 
-### `output/`
+### `runtime/`
 
-Generated run artifacts only.
+Generated run artifacts only. The canonical final location is:
+
+- `runtime/runs/<run_id>/output_bundle/`
 
 ## Read This Before Editing
 

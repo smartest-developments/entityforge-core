@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Core pipeline: JSON -> Senzing JSONL -> Senzing E2E -> output/<timestamp> artifacts."""
+"""Core pipeline: JSON -> Senzing JSONL -> Senzing E2E -> runtime run output bundle."""
 
 from __future__ import annotations
 
@@ -701,38 +701,47 @@ def copy_if_exists(source: Path, destination: Path) -> bool:
     return True
 
 
-def refresh_dashboard_data(mvp_root: Path, output_root: Path) -> None:
+def build_run_dashboard_bundle(
+    mvp_root: Path,
+    run_dir: Path,
+    output_run_dir: Path,
+    output_folder_name: str,
+) -> dict[str, str]:
     dashboard_builder = mvp_root / "app" / "build_management_dashboard.py"
     if not dashboard_builder.exists():
         print(f"WARNING: dashboard builder not found: {dashboard_builder}")
-        return
-    command = [
-        sys.executable,
-        str(dashboard_builder),
-        "--output-root",
-        str(output_root),
-        "--dashboard-dir",
-        "dashboard",
-    ]
-    run_command(command, mvp_root)
-
-
-def copy_run_dashboard_bundle(output_run_dir: Path, mvp_root: Path) -> dict[str, str]:
-    """Copy the current dashboard web bundle and Streamlit app into one run folder."""
+        return {}
+    build_root = run_dir / ".dashboard_build_root"
+    run_alias = build_root / output_folder_name
+    dashboard_dir = output_run_dir / "dashboard_web"
+    streamlit_assets_dir = output_run_dir / "dashboard_streamlit_app" / "assets"
+    if build_root.exists():
+        shutil.rmtree(build_root, ignore_errors=True)
+    build_root.mkdir(parents=True, exist_ok=True)
+    try:
+        try:
+            run_alias.symlink_to(output_run_dir, target_is_directory=True)
+        except OSError:
+            shutil.copytree(output_run_dir, run_alias, dirs_exist_ok=True)
+        command = [
+            sys.executable,
+            str(dashboard_builder),
+            "--output-root",
+            str(build_root),
+            "--dashboard-dir",
+            str(dashboard_dir),
+            "--streamlit-assets-dir",
+            str(streamlit_assets_dir),
+        ]
+        run_command(command, mvp_root)
+    finally:
+        shutil.rmtree(build_root, ignore_errors=True)
     copied: dict[str, str] = {}
-    dashboard_source = mvp_root / "dashboard"
-    streamlit_source = dashboard_source / "streamlit_app"
-    run_dashboard_dir = output_run_dir / "dashboard_web"
-    run_streamlit_dir = output_run_dir / "dashboard_streamlit_app"
-
-    if dashboard_source.exists():
-        shutil.copytree(dashboard_source, run_dashboard_dir, dirs_exist_ok=True)
-        copied["dashboard_web"] = str(run_dashboard_dir.resolve())
-
-    if streamlit_source.exists():
-        shutil.copytree(streamlit_source, run_streamlit_dir, dirs_exist_ok=True)
-        copied["dashboard_streamlit_app"] = str(run_streamlit_dir.resolve())
-
+    if dashboard_dir.exists():
+        copied["dashboard_web"] = str(dashboard_dir.resolve())
+    streamlit_dir = output_run_dir / "dashboard_streamlit_app"
+    if streamlit_dir.exists():
+        copied["dashboard_streamlit_app"] = str(streamlit_dir.resolve())
     return copied
 
 
@@ -766,6 +775,7 @@ def copy_artifacts_to_output(
     output_run_dir: Path,
     mvp_root: Path,
     runtime_dir: Path,
+    output_root: Path,
     source_input_json: Path,
     run_dir: Path,
     mapped_output_jsonl: Path,
@@ -810,7 +820,11 @@ def copy_artifacts_to_output(
             continue
         targets[to_host_path(Path(str(value)))] = destination
 
-    run_registry_candidate = mvp_root / "output" / "run_registry.csv"
+    run_registry_candidate = output_root / "run_registry.csv"
+    if not run_registry_candidate.exists():
+        legacy_run_registry_candidate = mvp_root / "output" / "run_registry.csv"
+        if legacy_run_registry_candidate.exists():
+            run_registry_candidate = legacy_run_registry_candidate
     if run_registry_candidate.exists():
         targets[run_registry_candidate] = technical_dir / "run_registry.csv"
 
@@ -1196,6 +1210,7 @@ def main() -> int:
             output_run_dir=output_run_dir,
             mvp_root=mvp_root,
             runtime_dir=runtime_dir,
+            output_root=output_root,
             source_input_json=input_json,
             run_dir=run_dir,
             mapped_output_jsonl=mapped_output_jsonl,
@@ -1211,20 +1226,26 @@ def main() -> int:
             )
         except Exception as exc:
             print(f"WARNING: unable to compute extra match metrics ({exc})")
+        output_run_dir, copied = relocate_output_bundle_to_run_dir(
+            output_run_dir=output_run_dir,
+            run_dir=run_dir,
+            copied=copied,
+        )
         try:
-            refresh_dashboard_data(mvp_root=mvp_root, output_root=output_root)
+            copied.update(
+                build_run_dashboard_bundle(
+                    mvp_root=mvp_root,
+                    run_dir=run_dir,
+                    output_run_dir=output_run_dir,
+                    output_folder_name=output_folder_name,
+                )
+            )
         except subprocess.CalledProcessError as exc:
             print(
                 f"ERROR: dashboard refresh/test suite failed (exit code {exc.returncode}).",
                 file=sys.stderr,
             )
             return exc.returncode or 1
-        copied.update(copy_run_dashboard_bundle(output_run_dir=output_run_dir, mvp_root=mvp_root))
-        output_run_dir, copied = relocate_output_bundle_to_run_dir(
-            output_run_dir=output_run_dir,
-            run_dir=run_dir,
-            copied=copied,
-        )
 
         print("\nCore pipeline completed.")
         print(f"Input JSON: {input_json}")

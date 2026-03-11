@@ -11,6 +11,8 @@ Primary execution target is now:
 
 Start from:
 - `core/README.md`
+- `project_meta/REPOSITORY_CONTEXT_SPEC.md`
+- `project_meta/REPOSITORY_GUARDRAILS.md`
 
 ## Repository areas
 

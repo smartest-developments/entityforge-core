@@ -1,9 +1,12 @@
-# Core Pipeline (One-Million Mode)
+# Core Pipeline
 
-This core stack is now focused on a **single high-volume stress dataset**:
-- one sample
-- default size: **1,000,000 rows**
-- objective: challenge both our baseline and the Senzing engine under heavy, noisy conditions.
+`core/` is the production-facing area of the repository. It contains:
+
+- executable pipeline scripts
+- dashboard templates
+- validation tests
+- runbooks and context docs
+- generated runtime artifacts under `runtime/`
 
 ## Core files
 
@@ -12,26 +15,55 @@ This core stack is now focused on a **single high-volume stress dataset**:
 - `app/build_management_dashboard.py`: rebuilds static dashboard data + automated checks
 - `app/verify_dashboard_metrics.py`: cross-checks dashboard KPIs vs technical artifacts
 - `testing/`: full automated KPI validation suite
-- `dashboard/`: offline dashboard bundle (`index.html`)
+- `dashboard/`: versioned dashboard template/assets only
+- `run_production_command.sh`: one-command production wrapper
+- `run_existing_project_audit.sh`: manual audit helper for already-loaded projects
 
 For a fast operational overview, also read:
 
 - `documentation/CORE_CONTEXT_SPEC.md`
+- `documentation/PRODUCTION_RUNBOOK.md`
 
-## Final results (offline, no server)
+## Production command
 
-If you only need to present final numbers/graphs, use:
+```bash
+cd core
+./run_production_command.sh
+```
 
-- `dashboard/index.html` (double-click to open)
+Optional first-record cap for smoke/full-flow validation:
 
-The `dashboard/` folder is intentionally self-contained:
-- dashboard HTML/CSS/JS
-- UI libraries
-- embedded final data (`management_dashboard_data.js`)
+```bash
+cd core
+INPUT_RECORD_LIMIT=10000 ./run_production_command.sh
+```
+
+## Runtime output location
+
+Final outputs for a specific execution live under:
+
+```text
+core/runtime/runs/<run_id>/output_bundle/
+```
+
+Typical contents:
+
+- `technical output/`
+- `dashboard_web/`
+- `dashboard_streamlit_app/`
+- `senzing_audit/`
+- `diagnostics/`
+- `limited_inputs/` when a capped run was used
+
+The repository-level `dashboard/` directory is not the canonical destination for run outputs.
 
 ## Optional Streamlit dashboard
 
-An interactive Streamlit version is available at:
+Each run now includes its own ready-to-open Streamlit bundle under:
+
+- `runtime/runs/<run_id>/output_bundle/dashboard_streamlit_app/`
+
+Template source remains in:
 
 - `dashboard/streamlit_app/app.py`
 
@@ -74,18 +106,6 @@ Large-run safety defaults are now automatic when input size is large (>= 300k ro
 - `sz_file_loader` primary run with `--no-shuffle` to reduce temporary disk churn
 - `sz_export` streaming mode (avoids writing a large standalone export CSV)
 - preflight disk visibility in runtime metadata
-
-Default lightweight mode now skips:
-- snapshot
-- explain/why
-
-Enable snapshot only when needed:
-
-```bash
-python3 app/run_mvp_pipeline.py \
-  --input-json sample_input/one_million_stress.jsonl \
-  --with-snapshot
-```
 
 Useful flags:
 
@@ -186,24 +206,9 @@ The runtime injects this value as `LICENSESTRINGBASE64` in Senzing engine config
 
 ## Dashboard and validation
 
-After each pipeline run, dashboard rebuild runs automatically and enforces:
-1. `testing/run_dashboard_tests.py`
-2. `app/verify_dashboard_metrics.py`
+After each production run, the pipeline builds a run-local dashboard bundle and validates it automatically.
 
-If any check fails, the process exits with non-zero status.
-
-Manual run:
-
-```bash
-cd core
-python3 app/build_management_dashboard.py
-```
-
-Skip checks only for debug:
-
-```bash
-python3 app/build_management_dashboard.py --skip-tests --skip-audit
-```
+Manual dashboard rebuilds are still possible for development, but the production path should go through `run_production_command.sh`.
 
 ## Test commands
 
@@ -226,13 +231,10 @@ When `run_mvp_pipeline.py` fails (for example at `load_records`), run:
 
 ```bash
 cd core
-python3 app/diagnose_senzing_runtime.py --runtime-dir /mnt/mvp_runtime --search-dirs /mnt,/tmp,.
+python3 app/diagnose_senzing_runtime.py --runtime-dir /mnt/runtime --search-dirs /mnt,/tmp,.
 ```
 
-This generates:
-- `output/diagnostics/runtime_diagnostic_<timestamp>.json`
-- `output/diagnostics/runtime_diagnostic_<timestamp>.md`
-- `output/diagnostics/runtime_diagnostic_<timestamp>.txt`
+This generates diagnostics intended to be kept with the run under `runtime/runs/<run_id>/output_bundle/diagnostics/`.
 
 The `.txt` file contains a compact copy/paste block for engineering/support escalation.
 
@@ -245,7 +247,7 @@ cd core
 python3 app/run_mvp_with_auto_diagnosis.py \
   --input-json /mnt/Senzing-Ready.json \
   --senzing-env /opt/senzing/er/resources/templates/setupEnv \
-  --runtime-dir /mnt/mvp_runtime
+  --runtime-dir /mnt/runtime
 ```
 
 This command:
@@ -255,3 +257,10 @@ This command:
 4. Prints a compact `COPY THIS BLOCK` summary for escalation.
 
 By default it does **not** remove or filter records.
+
+## Guardrails
+
+- do not commit generated run outputs
+- do not commit dashboard runtime payloads
+- do not commit local license files
+- keep production run deliverables together under the run-local `output_bundle/`

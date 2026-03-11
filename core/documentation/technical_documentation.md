@@ -16,8 +16,8 @@ Key runtime and reporting areas:
 - `core/app/build_management_dashboard.py`: dashboard data rebuild + tests + metric audit
 - `core/app/verify_dashboard_metrics.py`: metric cross-check against technical artifacts
 - `core/testing/`: dashboard test suite
-- `core/dashboard/`: static dashboard bundle + streamlit app subfolder
-- `core/output/`: timestamped run outputs
+- `core/dashboard/`: versioned dashboard templates + streamlit app source
+- `core/runtime/`: generated runtime, projects, runs, and per-run output bundles
 - `core/documentation/`: business and technical documents
 
 ## 3) Supported Inputs and Parsing Behavior
@@ -53,11 +53,15 @@ bash run_production_command.sh
 ```
 
 Current production profile in `run_production_command.sh`:
+- runtime root default: `/mnt/runtime`
+- staging root default: `/mnt/runtime/_staging/<output_label>/`
 - `--load-batch-size 1000`
 - `--load-chunk-size 100`
 - `--continue-on-failed-file`
 - `--max-failed-files 50`
 - `--load-file-timeout-seconds ${LOAD_FILE_TIMEOUT_SECONDS:-180}`
+- shuffle enabled
+- automatic thread backoff: `3 -> 2 -> 1`
 - `ulimit -c 0` to avoid core dump clutter
 
 Custom timeout example:
@@ -73,7 +77,8 @@ During large runs, we observed:
 - stalls on specific data segments
 
 To stabilize execution:
-- load thread is kept to 1 in production wrapper
+- primary load starts at 3 threads
+- thread fallback automatically reduces to 2 and then 1
 - input is physically split into files of 1,000 records
 - failed batches can be retried with chunk fallback at 100 records
 - per-file timeout prevents long indefinite stalls
@@ -101,16 +106,17 @@ Trade-off:
 
 4. Load strategy:
 - primary load attempt
-- fallback load attempt
+- automatic thread fallback
 - optional chunk fallback when enabled
 - optional proactive split-file loading (`--load-batch-size`)
 
 5. Artifacts collection:
-- technical files copied to `core/output/<timestamp>__<label>/technical output/`
-- includes run summary, management summary, quality files, entity/match csv files
+- final bundle stored at `core/runtime/runs/<run_id>/output_bundle/`
+- includes technical files, dashboards, diagnostics, limited input copy when applicable, and Senzing audit files
 
 6. Dashboard refresh:
 - `build_management_dashboard.py` is called automatically at the end
+- dashboard output is written directly into the run-local output bundle
 - this step also runs tests/audit unless explicitly skipped
 
 ## 8) Large-Run Auto-Tuning in `run_mvp_pipeline.py`
@@ -152,9 +158,9 @@ Behavior:
 - prints compact `COPY THIS BLOCK` summary for escalation
 
 Diagnostics output:
-- `core/output/diagnostics/runtime_diagnostic_<timestamp>.json`
-- `core/output/diagnostics/runtime_diagnostic_<timestamp>.md`
-- `core/output/diagnostics/runtime_diagnostic_<timestamp>.txt`
+- `core/runtime/runs/<run_id>/output_bundle/diagnostics/runtime_diagnostic_<timestamp>.json`
+- `core/runtime/runs/<run_id>/output_bundle/diagnostics/runtime_diagnostic_<timestamp>.md`
+- `core/runtime/runs/<run_id>/output_bundle/diagnostics/runtime_diagnostic_<timestamp>.txt`
 
 ## 11) Dashboard Build and Data Selection Logic
 Dashboard script:
@@ -163,6 +169,9 @@ Dashboard script:
 Current behavior:
 - default: uses only latest run chronologically
 - optional history mode: `--all-runs`
+- in the production wrapper, dashboard assets are written directly into:
+  - `runtime/runs/<run_id>/output_bundle/dashboard_web/`
+  - `runtime/runs/<run_id>/output_bundle/dashboard_streamlit_app/`
 - writes:
   - `management_dashboard_data.js`
   - `management_dashboard_data.json`
@@ -173,11 +182,11 @@ Validation steps executed by default:
 - `verify_dashboard_metrics.py`
 
 ## 12) Dashboard and Streamlit Alignment
-During dashboard rebuild, the same generated data is synced to:
-- `core/dashboard/management_dashboard_data.js`
-- `core/dashboard/streamlit_app/assets/management_dashboard_data.js`
+During dashboard rebuild, the same generated data is synced inside the run-local bundle:
+- `runtime/runs/<run_id>/output_bundle/dashboard_web/management_dashboard_data.js`
+- `runtime/runs/<run_id>/output_bundle/dashboard_streamlit_app/assets/management_dashboard_data.js`
 
-This ensures HTML dashboard and Streamlit app show the same latest numbers.
+This ensures HTML dashboard and Streamlit app for the same run show the same numbers.
 
 ## 13) Streamlit Application Startup
 Primary startup script:
@@ -203,7 +212,7 @@ streamlit run app.py --server.address 0.0.0.0 --server.port 8000
 
 ## 14) Output Artifacts You Should Expect
 Per run folder:
-- `core/output/<timestamp>__<label>/`
+- `core/runtime/runs/<run_id>/output_bundle/`
 
 Important files:
 - `management_summary.md`
@@ -216,9 +225,11 @@ Important files:
 - `technical output/entity_records.csv`
 - `technical output/match_stats.csv`
 
-Dashboard folder:
-- `core/dashboard/index.html`
-- `core/dashboard/management_dashboard_data.js`
+Dashboard folders:
+- `core/runtime/runs/<run_id>/output_bundle/dashboard_web/index.html`
+- `core/runtime/runs/<run_id>/output_bundle/dashboard_web/management_dashboard_data.js`
+- `core/runtime/runs/<run_id>/output_bundle/dashboard_streamlit_app/app.py`
+- `core/runtime/runs/<run_id>/output_bundle/senzing_audit/`
 
 ## 15) Cleanup Procedure
 Cleanup script:
@@ -231,13 +242,13 @@ Purpose:
 Example:
 ```bash
 cd core
-python3 app/cleanup_working_directory.py --runtime-dir /mnt/mvp_runtime
+python3 app/cleanup_working_directory.py --runtime-dir /mnt/runtime
 ```
 
 Dry run:
 ```bash
 cd core
-python3 app/cleanup_working_directory.py --runtime-dir /mnt/mvp_runtime --dry-run
+python3 app/cleanup_working_directory.py --runtime-dir /mnt/runtime --dry-run
 ```
 
 ## 16) Recommended Daily Operational Sequence
@@ -247,7 +258,7 @@ python3 app/cleanup_working_directory.py --runtime-dir /mnt/mvp_runtime --dry-ru
 3. Check pipeline completion status.
 4. Review diagnostics report if generated.
 5. Open dashboard:
-   - `core/dashboard/index.html`
+   - `core/runtime/runs/<run_id>/output_bundle/dashboard_web/index.html`
 6. If needed, rerun only dashboard build:
    - `python3 app/build_management_dashboard.py`
 

@@ -85,9 +85,10 @@ The active pipeline is:
 
 Primary generated outputs live under:
 
-- `core/output/<timestamp>__<label>/`
-- `core/dashboard/management_dashboard_data.js`
-- `core/dashboard/index.html`
+- `core/runtime/runs/<run_id>/output_bundle/`
+- `core/runtime/runs/<run_id>/output_bundle/dashboard_web/`
+- `core/runtime/runs/<run_id>/output_bundle/dashboard_streamlit_app/`
+- `core/runtime/runs/<run_id>/output_bundle/senzing_audit/`
 
 Typical per-run artifacts:
 
@@ -97,7 +98,8 @@ Typical per-run artifacts:
 - management summary,
 - ground truth match quality report,
 - `matched_pairs.csv`,
-- `entity_records.csv`.
+- `entity_records.csv`,
+- per-run diagnostics when generated.
 
 ## Working Guidance
 

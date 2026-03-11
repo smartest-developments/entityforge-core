@@ -16,6 +16,7 @@ Start here:
 
 - `core/README.md`
 - `project_meta/REPOSITORY_CONTEXT_SPEC.md`
+- `project_meta/REPOSITORY_GUARDRAILS.md`
 
 ## Repository layout
 
@@ -36,19 +37,29 @@ Run the main pipeline:
 
 ```bash
 cd core
-python3 app/run_mvp_pipeline.py \
-  --input-json sample_input/one_million_stress.jsonl \
-  --execution-mode auto
+./run_production_command.sh
 ```
 
-Rebuild the dashboard:
+Run only the first 10,000 records of the production file:
 
 ```bash
 cd core
-python3 app/build_management_dashboard.py
+INPUT_RECORD_LIMIT=10000 ./run_production_command.sh
 ```
 
-Run dashboard validation:
+## Runtime layout
+
+Run-specific generated artifacts are intended to live under:
+
+- `core/runtime/runs/<run_id>/output_bundle/`
+
+This bundle contains technical output, dashboards, diagnostics, and Senzing audit files for that run.
+
+Repository-global generated outputs should not be committed.
+
+## Validation and diagnostics
+
+Manual dashboard validation:
 
 ```bash
 cd core
@@ -60,4 +71,4 @@ python3 app/verify_dashboard_metrics.py
 
 - Local Senzing license files and secrets are intentionally ignored and never committed.
 - The repository name has been updated to `entity-forge`, while some historical artifacts may still reference earlier internal naming.
-- For fast repository orientation, see `project_meta/REPOSITORY_CONTEXT_SPEC.md`, `core/documentation/CORE_CONTEXT_SPEC.md`, and `S3Z/reference/S3Z_CONTEXT_SPEC.md`.
+- For fast repository orientation, see `project_meta/REPOSITORY_CONTEXT_SPEC.md`, `project_meta/REPOSITORY_GUARDRAILS.md`, `core/documentation/CORE_CONTEXT_SPEC.md`, and `S3Z/reference/S3Z_CONTEXT_SPEC.md`.
