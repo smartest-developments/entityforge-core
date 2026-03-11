@@ -31,6 +31,7 @@ LOAD_FALLBACK_THREADS="${LOAD_FALLBACK_THREADS:-1}"
 LOAD_SHUFFLE_PRIMARY="${LOAD_SHUFFLE_PRIMARY:-1}"
 LOAD_BATCH_SIZE="${LOAD_BATCH_SIZE:-1000}"
 LOAD_CHUNK_SIZE="${LOAD_CHUNK_SIZE:-100}"
+KEEP_LOAD_BATCH_FILES="${KEEP_LOAD_BATCH_FILES:-1}"
 MAX_FAILED_FILES="${MAX_FAILED_FILES:-50}"
 SNAPSHOT_THREADS="${SNAPSHOT_THREADS:-1}"
 AUDIT_OUTPUT_SUBDIR="${AUDIT_OUTPUT_SUBDIR:-senzing_audit}"
@@ -103,6 +104,9 @@ PIPELINE_CMD=(
 if [[ "$LOAD_SHUFFLE_PRIMARY" == "1" ]]; then
   PIPELINE_CMD+=(--load-shuffle-primary)
 fi
+if [[ "$KEEP_LOAD_BATCH_FILES" == "1" ]]; then
+  PIPELINE_CMD+=(--keep-load-batch-files)
+fi
 
 echo "Running full production pipeline..."
 printf ' %q' "${PIPELINE_CMD[@]}"
@@ -169,7 +173,7 @@ echo "Running audit package generation..."
 INPUT_JSON="$MAPPED_OUTPUT_JSONL" \
 PROJECT_DIR="$PROJECT_DIR" \
 OUTPUT_DIR="$AUDIT_OUTPUT_DIR" \
-"$ROOT_DIR/run_existing_project_audit.sh"
+bash "$ROOT_DIR/run_existing_project_audit.sh"
 
 echo
 echo "Production pipeline + audit completed."
