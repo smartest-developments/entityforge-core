@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--execution-mode", default="local", choices=["local", "auto", "docker"])
     parser.add_argument("--runtime-dir", default="/mnt/mvp_runtime", help="Runtime directory for runs/projects")
-    parser.add_argument("--output-root", default="output", help="Output root for final artifacts")
+    parser.add_argument("--output-root", default="_limited_inputs", help="Output root for final artifacts")
     parser.add_argument("--output-label", default=None, help="Optional output label")
     parser.add_argument("--license-base64-file", default=None, help="Optional license file path")
     parser.add_argument("--data-source", default="PARTNERS")
@@ -105,7 +105,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--diagnostic-output-dir",
-        default="output/diagnostics",
+        default="diagnostics",
         help="Directory for generated diagnostic reports",
     )
     parser.add_argument("--skip-diagnostics-on-success", action="store_true")

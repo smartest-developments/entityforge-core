@@ -158,31 +158,31 @@ def discover_input_from_project(project_dir: Path) -> tuple[Path | None, str]:
             ]:
                 candidate_paths.append((run_dir / rel_path, label))
 
-    repo_root = resolve_repo_root()
-    registry_path = repo_root / "output" / "run_registry.csv"
-    if registry_path.exists():
-        try:
-            with registry_path.open("r", encoding="utf-8", newline="") as infile:
-                reader = csv.DictReader(infile)
-                rows = [
-                    row
-                    for row in reader
-                    if str(row.get("project_dir") or "").strip()
-                    and to_host_path(str(row.get("project_dir") or "").strip(), project_dir) == project_dir
-                ]
-            rows.reverse()
-            for row in rows:
-                for key, label in [
-                    ("base_input_json", "run_registry.base_input_json"),
-                    ("mapped_output_jsonl", "run_registry.mapped_output_jsonl"),
-                    ("load_input_jsonl", "run_registry.load_input_jsonl"),
-                    ("input_file", "run_registry.input_file"),
-                ]:
-                    raw = str(row.get(key) or "").strip()
-                    if raw:
-                        candidate_paths.append((to_host_path(raw, project_dir), label))
-        except OSError:
-            pass
+    if summary_path:
+        registry_path = summary_path.parent / "run_registry.csv"
+        if registry_path.exists():
+            try:
+                with registry_path.open("r", encoding="utf-8", newline="") as infile:
+                    reader = csv.DictReader(infile)
+                    rows = [
+                        row
+                        for row in reader
+                        if str(row.get("project_dir") or "").strip()
+                        and to_host_path(str(row.get("project_dir") or "").strip(), project_dir) == project_dir
+                    ]
+                rows.reverse()
+                for row in rows:
+                    for key, label in [
+                        ("base_input_json", "run_registry.base_input_json"),
+                        ("mapped_output_jsonl", "run_registry.mapped_output_jsonl"),
+                        ("load_input_jsonl", "run_registry.load_input_jsonl"),
+                        ("input_file", "run_registry.input_file"),
+                    ]:
+                        raw = str(row.get(key) or "").strip()
+                        if raw:
+                            candidate_paths.append((to_host_path(raw, project_dir), label))
+            except OSError:
+                pass
 
     for path, label in candidate_paths:
         if path.exists():
