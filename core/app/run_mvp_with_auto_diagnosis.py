@@ -138,9 +138,10 @@ def preflight(args: argparse.Namespace, mvp_root: Path) -> list[str]:
     if not input_path.exists():
         issues.append(f"Input file not found: {input_path}")
 
-    senzing_env = Path(args.senzing_env).expanduser().resolve()
-    if not senzing_env.exists():
-        issues.append(f"Senzing env script not found: {senzing_env}")
+    if args.execution_mode != "docker":
+        senzing_env = Path(args.senzing_env).expanduser().resolve()
+        if not senzing_env.exists():
+            issues.append(f"Senzing env script not found: {senzing_env}")
 
     runtime_dir = Path(args.runtime_dir).expanduser().resolve()
     runtime_dir.mkdir(parents=True, exist_ok=True)
