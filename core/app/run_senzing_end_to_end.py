@@ -1483,6 +1483,64 @@ def cleanup_loader_shuffle_files(load_input_jsonl: Path) -> list[str]:
     return removed
 
 
+def describe_load_failure(step: dict[str, Any]) -> str:
+    """Summarize a load attempt failure for adaptive retry warnings."""
+    if step.get("timed_out"):
+        return "timeout"
+    combined = (
+        f"{step.get('stderr_tail') or ''}\n{step.get('stdout_tail') or ''}"
+    ).lower()
+    if "locked" in combined or "lock" in combined or "sqlite_busy" in combined or "busy" in combined:
+        return "probable lock/contention"
+    return f"exit_code={step.get('exit_code')}"
+
+
+def build_load_attempt_specs(
+    load_threads: int,
+    load_fallback_threads: int,
+    load_no_shuffle_primary: bool,
+    disable_stability_retries: bool,
+) -> list[dict[str, Any]]:
+    """Build adaptive load attempt plan.
+
+    Strategy:
+    - first attempt uses the requested primary profile
+    - thread fallback attempts preserve the same shuffle mode
+    - progressively reduce thread count down to the fallback floor
+    """
+    attempts: list[dict[str, Any]] = [
+        {
+            "attempt_mode": "primary",
+            "threads": load_threads,
+            "no_shuffle": load_no_shuffle_primary,
+        }
+    ]
+    if disable_stability_retries:
+        return attempts
+
+    seen: set[tuple[int, bool]] = {(load_threads, load_no_shuffle_primary)}
+
+    def add_attempt(mode: str, threads: int, no_shuffle: bool) -> None:
+        key = (threads, no_shuffle)
+        if threads <= 0 or key in seen:
+            return
+        attempts.append(
+            {
+                "attempt_mode": mode,
+                "threads": threads,
+                "no_shuffle": no_shuffle,
+            }
+        )
+        seen.add(key)
+
+    fallback_floor = min(load_threads, max(1, load_fallback_threads))
+    for threads in range(load_threads - 1, fallback_floor - 1, -1):
+        add_attempt(f"retry_threads_{threads}", threads, load_no_shuffle_primary)
+
+    add_attempt("fallback_floor", fallback_floor, load_no_shuffle_primary)
+    return attempts
+
+
 def run_chunked_load_fallback(
     project_setup_env: Path,
     load_input_jsonl: Path,
@@ -1686,38 +1744,29 @@ def run_load_attempts_for_file(
             return remaining
         return max(1, min(step_timeout_seconds, remaining))
 
-    load_attempts: list[tuple[str, str, Path]] = [
-        (
-            "primary",
-            build_load_command(
-                project_setup_env=project_setup_env,
-                input_jsonl=load_input_jsonl,
-                num_threads=load_threads,
-                no_shuffle=load_no_shuffle_primary,
-                engine_config_json=engine_config_json,
-                license_string=license_string,
-            ),
-            logs_dir / f"{log_name_prefix}.log",
-        )
-    ]
-    if not disable_stability_retries:
-        load_attempts.append(
-            (
-                "fallback_single_thread",
-                build_load_command(
-                    project_setup_env=project_setup_env,
-                    input_jsonl=load_input_jsonl,
-                    num_threads=load_fallback_threads,
-                    no_shuffle=True,
-                    engine_config_json=engine_config_json,
-                    license_string=license_string,
-                ),
-                logs_dir / f"{log_name_prefix}_retry_1.log",
-            )
-        )
+    load_attempt_specs = build_load_attempt_specs(
+        load_threads=load_threads,
+        load_fallback_threads=load_fallback_threads,
+        load_no_shuffle_primary=load_no_shuffle_primary,
+        disable_stability_retries=disable_stability_retries,
+    )
 
     load_ok = False
-    for attempt_index, (attempt_mode, load_cmd, load_log_path) in enumerate(load_attempts):
+    for attempt_index, attempt_spec in enumerate(load_attempt_specs):
+        attempt_mode = str(attempt_spec["attempt_mode"])
+        attempt_threads = int(attempt_spec["threads"])
+        attempt_no_shuffle = bool(attempt_spec["no_shuffle"])
+        load_cmd = build_load_command(
+            project_setup_env=project_setup_env,
+            input_jsonl=load_input_jsonl,
+            num_threads=attempt_threads,
+            no_shuffle=attempt_no_shuffle,
+            engine_config_json=engine_config_json,
+            license_string=license_string,
+        )
+        load_log_path = logs_dir / (
+            f"{log_name_prefix}.log" if attempt_index == 0 else f"{log_name_prefix}_retry_{attempt_index}.log"
+        )
         step_name = step_name_prefix if attempt_index == 0 else f"{step_name_prefix}_retry_{attempt_index}"
         timeout_for_step = resolve_timeout_for_step()
         if timeout_for_step == 0:
@@ -1732,15 +1781,26 @@ def run_load_attempts_for_file(
             timeout_seconds=timeout_for_step,
         )
         step["attempt_mode"] = attempt_mode
+        step["attempt_threads"] = attempt_threads
+        step["attempt_no_shuffle"] = attempt_no_shuffle
         step["load_input_jsonl"] = str(load_input_jsonl)
         steps.append(step)
         if step["ok"]:
             if attempt_index > 0:
                 runtime_warnings.append(
-                    f"{step_name_prefix} primary attempt failed; fallback '{attempt_mode}' succeeded."
+                    f"{step_name_prefix} previous attempts failed; retry '{attempt_mode}' "
+                    f"succeeded with {attempt_threads} thread(s)"
+                    f"{' and no-shuffle' if attempt_no_shuffle else ''}."
                 )
             load_ok = True
             break
+        if attempt_index + 1 < len(load_attempt_specs):
+            next_attempt = load_attempt_specs[attempt_index + 1]
+            runtime_warnings.append(
+                f"{step_name_prefix} attempt '{attempt_mode}' failed ({describe_load_failure(step)}); "
+                f"retrying with {int(next_attempt['threads'])} thread(s)"
+                f"{' and no-shuffle' if bool(next_attempt['no_shuffle']) else ''}."
+            )
 
     if not load_ok and enable_load_chunk_fallback and load_chunk_size > 0:
         timeout_for_chunks = resolve_timeout_for_step()

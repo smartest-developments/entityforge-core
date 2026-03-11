@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--load-threads", type=int, default=1)
     parser.add_argument("--load-fallback-threads", type=int, default=1)
     parser.add_argument(
+        "--load-shuffle-primary",
+        action="store_true",
+        help="Keep shuffle enabled on primary sz_file_loader attempts.",
+    )
+    parser.add_argument(
         "--load-chunk-size",
         type=int,
         default=50000,
@@ -182,8 +187,9 @@ def build_pipeline_command(args: argparse.Namespace, mvp_root: Path) -> list[str
         str(args.snapshot_threads),
         "--snapshot-fallback-threads",
         str(args.snapshot_fallback_threads),
-        "--load-no-shuffle-primary",
     ]
+    if not args.load_shuffle_primary:
+        command.append("--load-no-shuffle-primary")
     if not args.disable_load_chunk_fallback:
         command.append("--enable-load-chunk-fallback")
         if args.load_chunk_size > 0:

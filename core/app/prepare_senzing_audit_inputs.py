@@ -217,6 +217,144 @@ def run_command(cmd: list[str], env: dict[str, str] | None = None) -> None:
         raise RuntimeError(f"Command failed with exit code {result.returncode}")
 
 
+def containerize_path(path: Path, repo_root: Path, runtime_root: Path, extra_mount: Path) -> tuple[str, list[tuple[Path, str]]]:
+    resolved = path.resolve()
+    mounts: list[tuple[Path, str]] = []
+    try:
+        return f"/runtime/{resolved.relative_to(runtime_root).as_posix()}", mounts
+    except ValueError:
+        pass
+    try:
+        return f"/workspace/{resolved.relative_to(repo_root).as_posix()}", mounts
+    except ValueError:
+        pass
+    mounts.append((extra_mount, "/audit-output"))
+    if resolved == extra_mount:
+        return "/audit-output", mounts
+    return f"/audit-output/{resolved.relative_to(extra_mount).as_posix()}", mounts
+
+
+def run_snapshot_with_docker(
+    *,
+    project_dir: Path,
+    snapshot_root: Path,
+    snapshot_threads: int,
+    repo_root: Path,
+    runtime_root: Path,
+) -> None:
+    image = os.environ.get("SENZING_DOCKER_IMAGE", "senzing/sz-file-loader:latest")
+    extra_mount = snapshot_root.parent
+    project_container_path, project_mounts = containerize_path(project_dir, repo_root, runtime_root, extra_mount)
+    snapshot_container_root, snapshot_mounts = containerize_path(snapshot_root, repo_root, runtime_root, extra_mount)
+
+    mount_map: dict[str, str] = {
+        str(repo_root.resolve()): "/workspace",
+        str(runtime_root.resolve()): "/runtime",
+    }
+    for host_path, container_path in [*project_mounts, *snapshot_mounts]:
+        mount_map[str(host_path.resolve())] = container_path
+
+    docker_cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "/bin/bash",
+        "-v",
+        f"{repo_root.resolve()}:/workspace",
+        "-v",
+        f"{runtime_root.resolve()}:/runtime",
+        "-w",
+        "/workspace",
+    ]
+    for host_path, container_path in mount_map.items():
+        if container_path in {"/workspace", "/runtime"}:
+            continue
+        docker_cmd.extend(["-v", f"{host_path}:{container_path}"])
+
+    shell_command = (
+        f"source {shlex.quote(project_container_path + '/setupEnv')} >/dev/null 2>&1 && "
+        f"{shlex.quote(project_container_path + '/bin/sz_snapshot')} "
+        f"-A -Q -o {shlex.quote(snapshot_container_root)} -t {snapshot_threads}"
+    )
+    docker_cmd.extend([image, "-lc", shell_command])
+    run_command(docker_cmd)
+
+
+def write_audit_readme(
+    *,
+    output_dir: Path,
+    manifest_path: Path,
+    simple_csv: Path,
+    truthset_key_csv: Path,
+    snapshot_csv: Path | None,
+    snapshot_json: Path | None,
+    audit_csv: Path | None,
+    audit_json: Path | None,
+) -> Path:
+    """Write a README describing each generated audit artifact."""
+    readme_path = output_dir / "README.md"
+    descriptions: list[tuple[Path, str]] = [
+        (
+            simple_csv,
+            "Simple reference file mapping each generated `record_id` to the corresponding source `cluster_id` (`IPG ID`) from the same input row.",
+        ),
+        (
+            truthset_key_csv,
+            "Truth-set key file used as the `prior` input for `sz_audit`; it contains `DATA_SOURCE`, `RECORD_ID`, and `CLUSTER_ID`.",
+        ),
+    ]
+    if snapshot_csv is not None:
+        descriptions.append(
+            (
+                snapshot_csv,
+                "Audit-format snapshot exported from the loaded Senzing project with `sz_snapshot -A`; it represents how Senzing actually clustered the loaded records.",
+            )
+        )
+    if snapshot_json is not None:
+        descriptions.append(
+            (
+                snapshot_json,
+                "Metadata sidecar written by `sz_snapshot`; useful for tracing snapshot execution details alongside the CSV payload.",
+            )
+        )
+    if audit_csv is not None:
+        descriptions.append(
+            (
+                audit_csv,
+                "Detailed audit output from `sz_audit`, listing record-level differences between the truth-set clustering and the clustering produced by Senzing.",
+            )
+        )
+    if audit_json is not None:
+        descriptions.append(
+            (
+                audit_json,
+                "Summary audit metrics from `sz_audit`, including aggregate precision, recall, F1, and merge/split counts.",
+            )
+        )
+    descriptions.append(
+        (
+            manifest_path,
+            "Machine-readable manifest describing the generated files, discovered input source, inferred IPG field, and row counts.",
+        )
+    )
+
+    lines = [
+        "# Senzing Audit Package",
+        "",
+        "This folder contains the files used to compare the source clustering (`IPG ID`) with the clustering produced by Senzing.",
+        "",
+        "## Files",
+        "",
+    ]
+    for path, description in descriptions:
+        if path.exists():
+            lines.append(f"- `{path.name}`: {description}")
+    lines.append("")
+    readme_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return readme_path
+
+
 def main() -> int:
     parser = build_arg_parser()
     args = parser.parse_args()
@@ -310,21 +448,37 @@ def main() -> int:
             if missing:
                 raise FileNotFoundError("Missing required project files:\n" + "\n".join(f"- {item}" for item in missing))
 
-            project_env = load_setup_env(setup_env)
             snapshot_root = output_dir / args.snapshot_prefix
             snapshot_csv = snapshot_root.with_suffix(".csv")
-            run_command(
-                [
-                    str(snapshot_bin),
-                    "-A",
-                    "-Q",
-                    "-o",
-                    str(snapshot_root),
-                    "-t",
-                    str(args.snapshot_threads),
-                ],
-                env=project_env,
-            )
+            try:
+                project_env = load_setup_env(setup_env)
+                run_command(
+                    [
+                        str(snapshot_bin),
+                        "-A",
+                        "-Q",
+                        "-o",
+                        str(snapshot_root),
+                        "-t",
+                        str(args.snapshot_threads),
+                    ],
+                    env=project_env,
+                )
+            except Exception as host_err:  # pylint: disable=broad-exception-caught
+                runtime_roots = candidate_runtime_roots(project_dir)
+                runtime_root = runtime_roots[0] if runtime_roots else project_dir.parent.parent
+                print(
+                    "Host snapshot failed; retrying inside Docker. "
+                    f"Original error: {host_err}",
+                    file=sys.stderr,
+                )
+                run_snapshot_with_docker(
+                    project_dir=project_dir,
+                    snapshot_root=snapshot_root,
+                    snapshot_threads=args.snapshot_threads,
+                    repo_root=resolve_repo_root(),
+                    runtime_root=runtime_root,
+                )
             if not snapshot_csv.exists():
                 raise FileNotFoundError(f"Expected snapshot CSV not found: {snapshot_csv}")
 
@@ -369,6 +523,17 @@ def main() -> int:
     }
     manifest_path = output_dir / "audit_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    snapshot_json = snapshot_csv.with_suffix(".json") if snapshot_csv else None
+    readme_path = write_audit_readme(
+        output_dir=output_dir,
+        manifest_path=manifest_path,
+        simple_csv=simple_csv,
+        truthset_key_csv=truthset_key_csv,
+        snapshot_csv=snapshot_csv,
+        snapshot_json=snapshot_json,
+        audit_csv=audit_csv,
+        audit_json=audit_json,
+    )
 
     print(f"Input file: {input_path}")
     print(f"Output directory: {output_dir}")
@@ -384,6 +549,7 @@ def main() -> int:
     print(f"Written rows: {written_simple}")
     print(f"Skipped rows: {skipped_rows}")
     print(f"Manifest: {manifest_path}")
+    print(f"README: {readme_path}")
     return 0
 
 

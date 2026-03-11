@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Production one-command run (pipeline + auto recovery + diagnostics on failure)
 # Stable profile for current production environment:
-# - single-thread load
+# - configurable load thread count with adaptive thread backoff on failed batches
 # - proactive batching (1k records per file)
 # - continue past failed split files (up to max-failed-files)
 # - per-file timeout to avoid long stalls
@@ -23,6 +23,9 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-output}"
 DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-output/diagnostics}"
 LOAD_FILE_TIMEOUT_SECONDS="${LOAD_FILE_TIMEOUT_SECONDS:-180}"
 STEP_TIMEOUT_SECONDS="${STEP_TIMEOUT_SECONDS:-28800}"
+LOAD_THREADS="${LOAD_THREADS:-3}"
+LOAD_FALLBACK_THREADS="${LOAD_FALLBACK_THREADS:-1}"
+LOAD_SHUFFLE_PRIMARY="${LOAD_SHUFFLE_PRIMARY:-1}"
 SNAPSHOT_THREADS="${SNAPSHOT_THREADS:-1}"
 AUDIT_OUTPUT_SUBDIR="${AUDIT_OUTPUT_SUBDIR:-senzing_audit}"
 RUN_STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -42,6 +45,8 @@ PIPELINE_CMD=(
   --diagnostic-output-dir "$DIAGNOSTIC_OUTPUT_DIR"
   --output-label "$OUTPUT_LABEL"
   --step-timeout-seconds "$STEP_TIMEOUT_SECONDS"
+  --load-threads "$LOAD_THREADS"
+  --load-fallback-threads "$LOAD_FALLBACK_THREADS"
   --load-batch-size 1000
   --continue-on-failed-file
   --max-failed-files 50
@@ -50,6 +55,10 @@ PIPELINE_CMD=(
   --snapshot-threads "$SNAPSHOT_THREADS"
   --with-snapshot
 )
+
+if [[ "$LOAD_SHUFFLE_PRIMARY" == "1" ]]; then
+  PIPELINE_CMD+=(--load-shuffle-primary)
+fi
 
 echo "Running full production pipeline..."
 printf ' %q' "${PIPELINE_CMD[@]}"
