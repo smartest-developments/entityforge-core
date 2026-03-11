@@ -260,6 +260,52 @@ def run_shell_step(
     }
 
 
+def drain_loader_aux_files(aux_dir: Path, log_path: Path) -> list[str]:
+    """Append non-empty loader aux files to the step log, then remove them."""
+    if not aux_dir.exists():
+        return []
+
+    removed: list[str] = []
+    aux_files = sorted(
+        [
+            path
+            for path in aux_dir.iterdir()
+            if path.is_file() and path.name.startswith("sz_file_loader_")
+        ]
+    )
+    if not aux_files:
+        try:
+            aux_dir.rmdir()
+        except OSError:
+            pass
+        return removed
+
+    log_append_chunks: list[str] = []
+    for path in aux_files:
+        try:
+            if path.stat().st_size > 0:
+                text = path.read_text(encoding="utf-8", errors="replace").strip()
+                if text:
+                    log_append_chunks.append(f"\n--- LOADER AUX FILE: {path.name} ---\n{text}\n")
+        except OSError:
+            pass
+        try:
+            path.unlink()
+            removed.append(str(path))
+        except OSError:
+            continue
+
+    if log_append_chunks:
+        with log_path.open("a", encoding="utf-8") as outfile:
+            outfile.write("".join(log_append_chunks))
+
+    try:
+        aux_dir.rmdir()
+    except OSError:
+        pass
+    return removed
+
+
 def build_shell_prefix(
     project_setup_env: Path,
     engine_config_json: str | None = None,
@@ -277,6 +323,7 @@ def build_load_command(
     input_jsonl: Path,
     num_threads: int,
     no_shuffle: bool = False,
+    loader_aux_dir: Path | None = None,
     engine_config_json: str | None = None,
     license_string: str | None = None,
 ) -> str:
@@ -289,6 +336,8 @@ def build_load_command(
         cmd += f" -nt {num_threads}"
     if no_shuffle:
         cmd += " --no-shuffle"
+    if loader_aux_dir is not None:
+        cmd += f" -ep {shlex.quote(str(loader_aux_dir))} -wp {shlex.quote(str(loader_aux_dir))}"
     return cmd
 
 
@@ -1591,11 +1640,14 @@ def run_chunked_load_fallback(
             file_suffix = f"{file_suffix}_{split_tag}"
         chunk_file = chunk_dir / f"load_chunk_{file_suffix}.jsonl"
         chunk_file.write_text("\n".join(chunk_lines) + "\n", encoding="utf-8")
+        chunk_aux_dir = logs_dir / "_loader_aux" / f"chunk_{file_suffix}"
+        chunk_aux_dir.mkdir(parents=True, exist_ok=True)
         chunk_cmd = build_load_command(
             project_setup_env=project_setup_env,
             input_jsonl=chunk_file,
             num_threads=1,
             no_shuffle=True,
+            loader_aux_dir=chunk_aux_dir,
             engine_config_json=engine_config_json,
             license_string=license_string,
         )
@@ -1617,6 +1669,7 @@ def run_chunked_load_fallback(
             log_path=logs_dir / f"02_load_chunk_{file_suffix}.log",
             timeout_seconds=effective_timeout,
         )
+        aux_removed = drain_loader_aux_files(chunk_aux_dir, logs_dir / f"02_load_chunk_{file_suffix}.log")
         step_attempts += 1
         step["attempt_mode"] = "chunked_single_thread"
         step["chunk_index"] = idx
@@ -1624,6 +1677,8 @@ def run_chunked_load_fallback(
         step["chunk_file"] = str(chunk_file)
         step["chunk_split_level"] = split_level
         step["chunk_split_tag"] = split_tag
+        if aux_removed:
+            step["loader_aux_removed"] = aux_removed
         steps.append(step)
 
         if step["ok"] and (not keep_loader_temp_files):
@@ -1756,11 +1811,15 @@ def run_load_attempts_for_file(
         attempt_mode = str(attempt_spec["attempt_mode"])
         attempt_threads = int(attempt_spec["threads"])
         attempt_no_shuffle = bool(attempt_spec["no_shuffle"])
+        aux_dir_name = log_name_prefix if attempt_index == 0 else f"{log_name_prefix}_retry_{attempt_index}"
+        attempt_aux_dir = logs_dir / "_loader_aux" / aux_dir_name
+        attempt_aux_dir.mkdir(parents=True, exist_ok=True)
         load_cmd = build_load_command(
             project_setup_env=project_setup_env,
             input_jsonl=load_input_jsonl,
             num_threads=attempt_threads,
             no_shuffle=attempt_no_shuffle,
+            loader_aux_dir=attempt_aux_dir,
             engine_config_json=engine_config_json,
             license_string=license_string,
         )
@@ -1780,10 +1839,13 @@ def run_load_attempts_for_file(
             log_path=load_log_path,
             timeout_seconds=timeout_for_step,
         )
+        aux_removed = drain_loader_aux_files(attempt_aux_dir, load_log_path)
         step["attempt_mode"] = attempt_mode
         step["attempt_threads"] = attempt_threads
         step["attempt_no_shuffle"] = attempt_no_shuffle
         step["load_input_jsonl"] = str(load_input_jsonl)
+        if aux_removed:
+            step["loader_aux_removed"] = aux_removed
         steps.append(step)
         if step["ok"]:
             if attempt_index > 0:
