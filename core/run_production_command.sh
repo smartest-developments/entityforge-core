@@ -4,7 +4,7 @@ set -euo pipefail
 # Production one-command run (pipeline + auto recovery + diagnostics on failure)
 # Stable profile for current production environment:
 # - configurable load thread count with adaptive thread backoff on failed batches
-# - proactive batching (1k records per file)
+# - proactive batching (1k records per file) with smaller chunk fallback
 # - continue past failed split files (up to max-failed-files)
 # - per-file timeout to avoid long stalls
 # - ultra-small chunk fallback (100)
@@ -18,6 +18,7 @@ if [[ ! -f "$INPUT_JSON" && -f /mnt/Senzing-Ready.json ]]; then
   INPUT_JSON="/mnt/Senzing-Ready.json"
 fi
 SENZING_ENV="${SENZING_ENV:-/opt/senzing/er/resources/templates/setupEnv}"
+EXECUTION_MODE="${EXECUTION_MODE:-local}"
 RUNTIME_DIR="${RUNTIME_DIR:-/mnt/mvp_runtime}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-output}"
 DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-output/diagnostics}"
@@ -26,6 +27,9 @@ STEP_TIMEOUT_SECONDS="${STEP_TIMEOUT_SECONDS:-28800}"
 LOAD_THREADS="${LOAD_THREADS:-3}"
 LOAD_FALLBACK_THREADS="${LOAD_FALLBACK_THREADS:-1}"
 LOAD_SHUFFLE_PRIMARY="${LOAD_SHUFFLE_PRIMARY:-1}"
+LOAD_BATCH_SIZE="${LOAD_BATCH_SIZE:-1000}"
+LOAD_CHUNK_SIZE="${LOAD_CHUNK_SIZE:-100}"
+MAX_FAILED_FILES="${MAX_FAILED_FILES:-50}"
 SNAPSHOT_THREADS="${SNAPSHOT_THREADS:-1}"
 AUDIT_OUTPUT_SUBDIR="${AUDIT_OUTPUT_SUBDIR:-senzing_audit}"
 RUN_STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -39,6 +43,7 @@ fi
 PIPELINE_CMD=(
   python3 "$ROOT_DIR/app/run_mvp_with_auto_diagnosis.py"
   --input-json "$INPUT_JSON"
+  --execution-mode "$EXECUTION_MODE"
   --senzing-env "$SENZING_ENV"
   --runtime-dir "$RUNTIME_DIR"
   --output-root "$OUTPUT_ROOT"
@@ -47,11 +52,11 @@ PIPELINE_CMD=(
   --step-timeout-seconds "$STEP_TIMEOUT_SECONDS"
   --load-threads "$LOAD_THREADS"
   --load-fallback-threads "$LOAD_FALLBACK_THREADS"
-  --load-batch-size 1000
+  --load-batch-size "$LOAD_BATCH_SIZE"
   --continue-on-failed-file
-  --max-failed-files 50
+  --max-failed-files "$MAX_FAILED_FILES"
   --load-file-timeout-seconds "$LOAD_FILE_TIMEOUT_SECONDS"
-  --load-chunk-size 100
+  --load-chunk-size "$LOAD_CHUNK_SIZE"
   --snapshot-threads "$SNAPSHOT_THREADS"
   --with-snapshot
 )
@@ -114,6 +119,10 @@ if not project_dir:
 print(project_dir)
 PY
 )"
+
+if [[ "$PROJECT_DIR" == /runtime/* ]]; then
+  PROJECT_DIR="$RUNTIME_DIR/${PROJECT_DIR#/runtime/}"
+fi
 
 AUDIT_OUTPUT_DIR="$RUN_OUTPUT_DIR/$AUDIT_OUTPUT_SUBDIR"
 
