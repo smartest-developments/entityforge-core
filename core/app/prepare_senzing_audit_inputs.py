@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -215,6 +216,15 @@ def run_command(cmd: list[str], env: dict[str, str] | None = None) -> None:
     result = subprocess.run(cmd, env=env, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Command failed with exit code {result.returncode}")
+
+
+def resolve_snapshot_bin(project_dir: Path, project_env: dict[str, str]) -> Path:
+    """Prefer host/system sz_snapshot when available, otherwise fall back to the project copy."""
+    env_path = project_env.get("PATH", "")
+    host_bin = shutil.which("sz_snapshot", path=env_path)
+    if host_bin:
+        return Path(host_bin).expanduser().resolve()
+    return (project_dir / "bin" / "sz_snapshot").resolve()
 
 
 def containerize_path(path: Path, repo_root: Path, runtime_root: Path, extra_mount: Path) -> tuple[str, list[tuple[Path, str]]]:
@@ -443,8 +453,9 @@ def main() -> int:
                 raise FileNotFoundError(f"Snapshot CSV not found: {snapshot_csv}")
         elif project_dir:
             setup_env = project_dir / "setupEnv"
-            snapshot_bin = project_dir / "bin" / "sz_snapshot"
-            missing = [str(path) for path in (setup_env, snapshot_bin, audit_bin) if not path.exists()]
+            project_snapshot_bin = project_dir / "bin" / "sz_snapshot"
+            execution_mode = os.environ.get("EXECUTION_MODE", "").strip().lower()
+            missing = [str(path) for path in (setup_env, project_snapshot_bin, audit_bin) if not path.exists()]
             if missing:
                 raise FileNotFoundError("Missing required project files:\n" + "\n".join(f"- {item}" for item in missing))
 
@@ -452,6 +463,7 @@ def main() -> int:
             snapshot_csv = snapshot_root.with_suffix(".csv")
             try:
                 project_env = load_setup_env(setup_env)
+                snapshot_bin = resolve_snapshot_bin(project_dir, project_env)
                 run_command(
                     [
                         str(snapshot_bin),
@@ -465,6 +477,12 @@ def main() -> int:
                     env=project_env,
                 )
             except Exception as host_err:  # pylint: disable=broad-exception-caught
+                if execution_mode == "local":
+                    raise RuntimeError(
+                        "Host snapshot failed in local mode. "
+                        "Local Senzing runtime is not configured correctly for sz_snapshot. "
+                        f"Original error: {host_err}"
+                    ) from host_err
                 runtime_roots = candidate_runtime_roots(project_dir)
                 runtime_root = runtime_roots[0] if runtime_roots else project_dir.parent.parent
                 print(
