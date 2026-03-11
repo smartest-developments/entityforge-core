@@ -17,6 +17,8 @@ INPUT_JSON="${INPUT_JSON:-$ROOT_DIR/Senzing-Ready.json}"
 if [[ ! -f "$INPUT_JSON" && -f /mnt/Senzing-Ready.json ]]; then
   INPUT_JSON="/mnt/Senzing-Ready.json"
 fi
+INPUT_RECORD_LIMIT="${INPUT_RECORD_LIMIT:-0}"
+INPUT_ARRAY_KEY="${INPUT_ARRAY_KEY:-}"
 SENZING_ENV="${SENZING_ENV:-/opt/senzing/er/resources/templates/setupEnv}"
 EXECUTION_MODE="${EXECUTION_MODE:-local}"
 RUNTIME_DIR="${RUNTIME_DIR:-/mnt/mvp_runtime}"
@@ -40,9 +42,46 @@ if [[ ! -f "$INPUT_JSON" ]]; then
   exit 2
 fi
 
+PIPELINE_INPUT_JSON="$INPUT_JSON"
+if [[ "$INPUT_RECORD_LIMIT" =~ ^[0-9]+$ ]] && [[ "$INPUT_RECORD_LIMIT" -gt 0 ]]; then
+  export ROOT_DIR OUTPUT_ROOT OUTPUT_LABEL INPUT_RECORD_LIMIT
+  LIMITED_INPUT_JSON="$(
+    python3 - <<'PY'
+import os
+from pathlib import Path
+
+root_dir = Path(os.environ["ROOT_DIR"]).resolve()
+output_root = Path(os.environ["OUTPUT_ROOT"])
+if not output_root.is_absolute():
+    output_root = (root_dir / output_root).resolve()
+label = os.environ["OUTPUT_LABEL"]
+limit = os.environ["INPUT_RECORD_LIMIT"]
+target = output_root / "_limited_inputs" / f"{label}__first_{limit}.jsonl"
+target.parent.mkdir(parents=True, exist_ok=True)
+print(target)
+PY
+  )"
+
+  LIMIT_CMD=(
+    python3 "$ROOT_DIR/app/create_limited_input.py"
+    "$INPUT_JSON"
+    "$LIMITED_INPUT_JSON"
+    --limit "$INPUT_RECORD_LIMIT"
+  )
+  if [[ -n "$INPUT_ARRAY_KEY" ]]; then
+    LIMIT_CMD+=(--array-key "$INPUT_ARRAY_KEY")
+  fi
+
+  echo "Creating limited input for smoke/full-flow validation..."
+  printf ' %q' "${LIMIT_CMD[@]}"
+  printf '\n'
+  "${LIMIT_CMD[@]}"
+  PIPELINE_INPUT_JSON="$LIMITED_INPUT_JSON"
+fi
+
 PIPELINE_CMD=(
   python3 "$ROOT_DIR/app/run_mvp_with_auto_diagnosis.py"
-  --input-json "$INPUT_JSON"
+  --input-json "$PIPELINE_INPUT_JSON"
   --execution-mode "$EXECUTION_MODE"
   --senzing-env "$SENZING_ENV"
   --runtime-dir "$RUNTIME_DIR"
@@ -135,6 +174,8 @@ OUTPUT_DIR="$AUDIT_OUTPUT_DIR" \
 echo
 echo "Production pipeline + audit completed."
 echo "Run output directory: $RUN_OUTPUT_DIR"
+echo "Source input JSON: $INPUT_JSON"
+echo "Pipeline input JSON: $PIPELINE_INPUT_JSON"
 echo "Mapped output JSONL: $MAPPED_OUTPUT_JSONL"
 echo "Project directory: $PROJECT_DIR"
 echo "Audit output directory: $AUDIT_OUTPUT_DIR"
