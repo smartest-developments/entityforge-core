@@ -45,6 +45,7 @@ Expected subfolders:
 - `dashboard_web/`
 - `dashboard_streamlit_app/`
 - `senzing_audit/`
+- `non_match_why/`
 - `diagnostics/` when diagnostics were generated
 - `limited_inputs/` when `INPUT_RECORD_LIMIT` was used
 
@@ -70,6 +71,21 @@ Inside `senzing_audit/` expect:
 - `truthset_audit.json`
 - `audit_manifest.json`
 - `README.md`
+
+## Non-Match WHY Bundle
+
+Inside `non_match_why/` expect:
+
+- `summary.md`
+- `README.md`
+- `cluster_summary.csv`
+- `record_membership.csv`
+- `non_match_pairs.csv`
+- `explained_non_match_pairs.csv`
+- `why_results.jsonl`
+- `index.html`
+
+This bundle focuses on records expected to match under the input clustering but split by Senzing in the snapshot/audit result.
 
 ## Dashboard Outputs
 

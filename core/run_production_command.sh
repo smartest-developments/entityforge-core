@@ -32,6 +32,8 @@ KEEP_LOAD_BATCH_FILES="${KEEP_LOAD_BATCH_FILES:-1}"
 MAX_FAILED_FILES="${MAX_FAILED_FILES:-50}"
 SNAPSHOT_THREADS="${SNAPSHOT_THREADS:-1}"
 AUDIT_OUTPUT_SUBDIR="${AUDIT_OUTPUT_SUBDIR:-senzing_audit}"
+NON_MATCH_WHY_OUTPUT_SUBDIR="${NON_MATCH_WHY_OUTPUT_SUBDIR:-non_match_why}"
+NON_MATCH_WHY_PAIR_LIMIT="${NON_MATCH_WHY_PAIR_LIMIT:-500}"
 RUN_STAMP="$(date '+%Y%m%d_%H%M%S')"
 OUTPUT_LABEL="${OUTPUT_LABEL:-production_${RUN_STAMP}}"
 RUNTIME_DIR="${RUNTIME_DIR:-/mnt/runtime}"
@@ -180,6 +182,7 @@ if [[ "$PROJECT_DIR" == /runtime/* ]]; then
 fi
 
 AUDIT_OUTPUT_DIR="$RUN_OUTPUT_DIR/$AUDIT_OUTPUT_SUBDIR"
+NON_MATCH_WHY_OUTPUT_DIR="$RUN_OUTPUT_DIR/$NON_MATCH_WHY_OUTPUT_SUBDIR"
 RUN_DIAGNOSTICS_DIR="$RUN_OUTPUT_DIR/diagnostics"
 RUN_LIMITED_INPUTS_DIR="$RUN_OUTPUT_DIR/limited_inputs"
 
@@ -210,6 +213,19 @@ printf ' %q' "${AUDIT_CMD[@]}"
 printf '\n'
 EXECUTION_MODE="$EXECUTION_MODE" "${AUDIT_CMD[@]}"
 
+echo "Running non-match WHY report generation..."
+NON_MATCH_WHY_CMD=(
+  python3 "$ROOT_DIR/app/build_non_match_why_report.py"
+  --run-output-dir "$RUN_OUTPUT_DIR"
+  --project-dir "$PROJECT_DIR"
+  --output-dir "$NON_MATCH_WHY_OUTPUT_DIR"
+  --data-source PARTNERS
+  --why-pair-limit "$NON_MATCH_WHY_PAIR_LIMIT"
+)
+printf ' %q' "${NON_MATCH_WHY_CMD[@]}"
+printf '\n'
+"${NON_MATCH_WHY_CMD[@]}"
+
 rm -rf "$STAGING_ROOT"
 if [[ -d "$(dirname "$STAGING_ROOT")" ]]; then
   rmdir "$(dirname "$STAGING_ROOT")" 2>/dev/null || true
@@ -223,3 +239,4 @@ echo "Pipeline input JSON: $PIPELINE_INPUT_JSON"
 echo "Mapped output JSONL: $MAPPED_OUTPUT_JSONL"
 echo "Project directory: $PROJECT_DIR"
 echo "Audit output directory: $AUDIT_OUTPUT_DIR"
+echo "Non-match WHY directory: $NON_MATCH_WHY_OUTPUT_DIR"

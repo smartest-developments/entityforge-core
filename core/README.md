@@ -52,6 +52,7 @@ Typical contents:
 - `dashboard_web/`
 - `dashboard_streamlit_app/`
 - `senzing_audit/`
+- `non_match_why/`
 - `diagnostics/`
 - `limited_inputs/` when a capped run was used
 
@@ -207,6 +208,11 @@ The runtime injects this value as `LICENSESTRINGBASE64` in Senzing engine config
 ## Dashboard and validation
 
 After each production run, the pipeline builds a run-local dashboard bundle and validates it automatically.
+
+It also produces:
+
+- `senzing_audit/` for truth-set comparison against Senzing
+- `non_match_why/` for readable analysis of records expected to match but split by Senzing
 
 Manual dashboard rebuilds are still possible for development, but the production path should go through `run_production_command.sh`.
 
