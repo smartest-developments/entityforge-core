@@ -219,12 +219,15 @@ def run_command(cmd: list[str], env: dict[str, str] | None = None) -> None:
 
 
 def resolve_snapshot_bin(project_dir: Path, project_env: dict[str, str]) -> Path:
-    """Prefer host/system sz_snapshot when available, otherwise fall back to the project copy."""
+    """Prefer the project-local sz_snapshot, then fall back to PATH."""
+    project_bin = (project_dir / "bin" / "sz_snapshot").resolve()
+    if project_bin.exists():
+        return project_bin
     env_path = project_env.get("PATH", "")
     host_bin = shutil.which("sz_snapshot", path=env_path)
     if host_bin:
         return Path(host_bin).expanduser().resolve()
-    return (project_dir / "bin" / "sz_snapshot").resolve()
+    return project_bin
 
 
 def containerize_path(path: Path, repo_root: Path, runtime_root: Path, extra_mount: Path) -> tuple[str, list[tuple[Path, str]]]:
@@ -479,8 +482,8 @@ def main() -> int:
             except Exception as host_err:  # pylint: disable=broad-exception-caught
                 if execution_mode == "local":
                     raise RuntimeError(
-                        "Host snapshot failed in local mode. "
-                        "Local Senzing runtime is not configured correctly for sz_snapshot. "
+                        "Snapshot command failed in local mode. "
+                        "The project-local snapshot tool did not complete successfully. "
                         f"Original error: {host_err}"
                     ) from host_err
                 runtime_roots = candidate_runtime_roots(project_dir)
