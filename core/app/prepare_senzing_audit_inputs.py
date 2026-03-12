@@ -8,7 +8,6 @@ import csv
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -191,26 +190,6 @@ def discover_input_from_project(project_dir: Path) -> tuple[Path | None, str]:
     return None, "not found"
 
 
-def load_setup_env(setup_env_path: Path) -> dict[str, str]:
-    shell_command = f"source {shlex.quote(str(setup_env_path))} >/dev/null 2>&1; env -0"
-    result = subprocess.run(
-        ["/bin/zsh", "-c", shell_command],
-        capture_output=True,
-        text=False,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Unable to source setupEnv: {setup_env_path}")
-
-    env_map = dict(os.environ)
-    for item in result.stdout.split(b"\x00"):
-        if not item or b"=" not in item:
-            continue
-        key, value = item.split(b"=", 1)
-        env_map[key.decode("utf-8", errors="replace")] = value.decode("utf-8", errors="replace")
-    return env_map
-
-
 def run_command(cmd: list[str], env: dict[str, str] | None = None) -> None:
     print("Running:", " ".join(shlex.quote(part) for part in cmd))
     result = subprocess.run(cmd, env=env, check=False)
@@ -218,16 +197,45 @@ def run_command(cmd: list[str], env: dict[str, str] | None = None) -> None:
         raise RuntimeError(f"Command failed with exit code {result.returncode}")
 
 
-def resolve_snapshot_bin(project_dir: Path, project_env: dict[str, str]) -> Path:
-    """Prefer the project-local sz_snapshot, then fall back to PATH."""
-    project_bin = (project_dir / "bin" / "sz_snapshot").resolve()
-    if project_bin.exists():
-        return project_bin
-    env_path = project_env.get("PATH", "")
-    host_bin = shutil.which("sz_snapshot", path=env_path)
-    if host_bin:
-        return Path(host_bin).expanduser().resolve()
-    return project_bin
+def resolve_setup_env_candidates(project_dir: Path) -> list[Path]:
+    candidates: list[Path] = []
+    for raw in [
+        project_dir / "setupEnv",
+        os.environ.get("SENZING_ENV", "").strip(),
+        "/opt/senzing/er/resources/templates/setupEnv",
+    ]:
+        if not raw:
+            continue
+        path = raw if isinstance(raw, Path) else Path(raw).expanduser().resolve()
+        if path.exists() and path not in candidates:
+            candidates.append(path)
+    return candidates
+
+
+def run_project_tool(setup_env: Path, tool: str | Path, args: list[str]) -> None:
+    shell_command = (
+        f"source {shlex.quote(str(setup_env))} >/dev/null 2>&1 && "
+        + " ".join([shlex.quote(str(tool)), *[shlex.quote(str(arg)) for arg in args]])
+    )
+    run_command(["bash", "-lc", shell_command])
+
+
+def run_project_tool_with_fallbacks(
+    *,
+    project_dir: Path,
+    tool: str | Path,
+    args: list[str],
+) -> None:
+    attempts: list[str] = []
+    for setup_env in resolve_setup_env_candidates(project_dir):
+        try:
+            run_project_tool(setup_env=setup_env, tool=tool, args=args)
+            return
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            attempts.append(f"{setup_env}: {err}")
+    if not attempts:
+        raise RuntimeError("No usable setupEnv candidate found for local project tool execution.")
+    raise RuntimeError("All setupEnv candidates failed:\n" + "\n".join(f"- {item}" for item in attempts))
 
 
 def containerize_path(path: Path, repo_root: Path, runtime_root: Path, extra_mount: Path) -> tuple[str, list[tuple[Path, str]]]:
@@ -455,21 +463,22 @@ def main() -> int:
             if not snapshot_csv.exists():
                 raise FileNotFoundError(f"Snapshot CSV not found: {snapshot_csv}")
         elif project_dir:
-            setup_env = project_dir / "setupEnv"
             project_snapshot_bin = project_dir / "bin" / "sz_snapshot"
             execution_mode = os.environ.get("EXECUTION_MODE", "").strip().lower()
-            missing = [str(path) for path in (setup_env, project_snapshot_bin, audit_bin) if not path.exists()]
+            setup_env_candidates = resolve_setup_env_candidates(project_dir)
+            missing = [str(path) for path in (project_snapshot_bin, audit_bin) if not path.exists()]
+            if not setup_env_candidates:
+                missing.append("setupEnv candidates: project/setupEnv or SENZING_ENV or /opt/senzing/er/resources/templates/setupEnv")
             if missing:
                 raise FileNotFoundError("Missing required project files:\n" + "\n".join(f"- {item}" for item in missing))
 
             snapshot_root = output_dir / args.snapshot_prefix
             snapshot_csv = snapshot_root.with_suffix(".csv")
             try:
-                project_env = load_setup_env(setup_env)
-                snapshot_bin = resolve_snapshot_bin(project_dir, project_env)
-                run_command(
-                    [
-                        str(snapshot_bin),
+                run_project_tool_with_fallbacks(
+                    project_dir=project_dir,
+                    tool=project_snapshot_bin,
+                    args=[
                         "-A",
                         "-Q",
                         "-o",
@@ -477,7 +486,6 @@ def main() -> int:
                         "-t",
                         str(args.snapshot_threads),
                     ],
-                    env=project_env,
                 )
             except Exception as host_err:  # pylint: disable=broad-exception-caught
                 if execution_mode == "local":
@@ -507,17 +515,31 @@ def main() -> int:
             audit_root = output_dir / args.audit_output_root
             audit_csv = audit_root.with_suffix(".csv")
             audit_json = audit_root.with_suffix(".json")
-            run_command(
-                [
-                    str(audit_bin),
-                    "-n",
-                    str(snapshot_csv),
-                    "-p",
-                    str(truthset_key_csv),
-                    "-o",
-                    str(audit_root),
-                ]
-            )
+            if project_dir:
+                run_project_tool_with_fallbacks(
+                    project_dir=project_dir,
+                    tool=project_dir / "bin" / "sz_audit",
+                    args=[
+                        "-n",
+                        str(snapshot_csv),
+                        "-p",
+                        str(truthset_key_csv),
+                        "-o",
+                        str(audit_root),
+                    ],
+                )
+            else:
+                run_command(
+                    [
+                        str(audit_bin),
+                        "-n",
+                        str(snapshot_csv),
+                        "-p",
+                        str(truthset_key_csv),
+                        "-o",
+                        str(audit_root),
+                    ]
+                )
             missing_outputs = [str(path) for path in (audit_csv, audit_json) if not path.exists()]
             if missing_outputs:
                 raise FileNotFoundError(
