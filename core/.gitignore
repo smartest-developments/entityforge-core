@@ -29,6 +29,7 @@ dashboard/streamlit_app/assets/management_dashboard_data.js
 # One-million stress sample generated locally (do not commit)
 sample_input/one_million_stress.jsonl
 sample_input/one_million_stress.metadata.json
+sample_input*/
 
 # Local debug/runtime artifacts (keep local, never commit)
 .runtime_debug/
