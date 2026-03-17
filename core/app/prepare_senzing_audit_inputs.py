@@ -199,16 +199,27 @@ def run_command(cmd: list[str], env: dict[str, str] | None = None) -> None:
 
 def resolve_setup_env_candidates(project_dir: Path) -> list[Path]:
     candidates: list[Path] = []
-    for raw in [
-        project_dir / "setupEnv",
-        os.environ.get("SENZING_ENV", "").strip(),
-        "/opt/senzing/er/resources/templates/setupEnv",
-    ]:
+    # Local project execution must primarily use project-scoped setupEnv.
+    # Optional SENZING_ENV can be provided explicitly by operators.
+    for raw in [project_dir / "setupEnv", os.environ.get("SENZING_ENV", "").strip()]:
         if not raw:
             continue
         path = raw if isinstance(raw, Path) else Path(raw).expanduser().resolve()
         if path.exists() and path not in candidates:
             candidates.append(path)
+    return candidates
+
+
+def resolve_tool_candidates(project_dir: Path, tool_name: str) -> list[Path | str]:
+    candidates: list[Path | str] = []
+    project_tool = (project_dir / "bin" / tool_name).resolve()
+    if project_tool.exists():
+        candidates.append(project_tool)
+    system_tool = Path("/opt/senzing/er/bin") / tool_name
+    if system_tool.exists():
+        candidates.append(system_tool.resolve())
+    # Last fallback: rely on PATH from sourced setupEnv.
+    candidates.append(tool_name)
     return candidates
 
 
@@ -223,16 +234,17 @@ def run_project_tool(setup_env: Path, tool: str | Path, args: list[str]) -> None
 def run_project_tool_with_fallbacks(
     *,
     project_dir: Path,
-    tool: str | Path,
+    tool_name: str,
     args: list[str],
 ) -> None:
     attempts: list[str] = []
     for setup_env in resolve_setup_env_candidates(project_dir):
-        try:
-            run_project_tool(setup_env=setup_env, tool=tool, args=args)
-            return
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            attempts.append(f"{setup_env}: {err}")
+        for tool in resolve_tool_candidates(project_dir, tool_name):
+            try:
+                run_project_tool(setup_env=setup_env, tool=tool, args=args)
+                return
+            except Exception as err:  # pylint: disable=broad-exception-caught
+                attempts.append(f"{setup_env} + {tool}: {err}")
     if not attempts:
         raise RuntimeError("No usable setupEnv candidate found for local project tool execution.")
     raise RuntimeError("All setupEnv candidates failed:\n" + "\n".join(f"- {item}" for item in attempts))
@@ -463,12 +475,11 @@ def main() -> int:
             if not snapshot_csv.exists():
                 raise FileNotFoundError(f"Snapshot CSV not found: {snapshot_csv}")
         elif project_dir:
-            project_snapshot_bin = project_dir / "bin" / "sz_snapshot"
             execution_mode = os.environ.get("EXECUTION_MODE", "").strip().lower()
             setup_env_candidates = resolve_setup_env_candidates(project_dir)
-            missing = [str(path) for path in (project_snapshot_bin, audit_bin) if not path.exists()]
+            missing = [str(path) for path in (audit_bin,) if not path.exists()]
             if not setup_env_candidates:
-                missing.append("setupEnv candidates: project/setupEnv or SENZING_ENV or /opt/senzing/er/resources/templates/setupEnv")
+                missing.append("setupEnv candidates: project/setupEnv or SENZING_ENV")
             if missing:
                 raise FileNotFoundError("Missing required project files:\n" + "\n".join(f"- {item}" for item in missing))
 
@@ -477,7 +488,7 @@ def main() -> int:
             try:
                 run_project_tool_with_fallbacks(
                     project_dir=project_dir,
-                    tool=project_snapshot_bin,
+                    tool_name="sz_snapshot",
                     args=[
                         "-A",
                         "-Q",
@@ -518,7 +529,7 @@ def main() -> int:
             if project_dir:
                 run_project_tool_with_fallbacks(
                     project_dir=project_dir,
-                    tool=project_dir / "bin" / "sz_audit",
+                    tool_name="sz_audit",
                     args=[
                         "-n",
                         str(snapshot_csv),
