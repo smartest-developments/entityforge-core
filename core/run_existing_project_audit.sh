@@ -32,9 +32,82 @@ SKIP_EMPTY_CLUSTER_ID="${SKIP_EMPTY_CLUSTER_ID:-0}"
 ARRAY_KEY="${ARRAY_KEY:-}"
 FUZZY_CUTOFF="${FUZZY_CUTOFF:-0.90}"
 SCAN_RECORDS="${SCAN_RECORDS:-500}"
+RUNTIME_DIR="${RUNTIME_DIR:-/mnt/runtime}"
 
 if [[ -z "$INPUT_JSON" && -f "$ROOT_DIR/Senzing-Ready.json" ]]; then
   INPUT_JSON="$ROOT_DIR/Senzing-Ready.json"
+fi
+
+if [[ -z "$INPUT_JSON" && -z "$PROJECT_DIR" && -z "$SNAPSHOT_CSV" ]]; then
+  export ROOT_DIR RUNTIME_DIR
+  AUTOFILL="$(
+    python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+root_dir = Path(os.environ["ROOT_DIR"]).resolve()
+runtime_dir = Path(os.environ["RUNTIME_DIR"]).expanduser()
+if not runtime_dir.is_absolute():
+    runtime_dir = (root_dir / runtime_dir).resolve()
+else:
+    runtime_dir = runtime_dir.resolve()
+
+candidate_runs_roots = [runtime_dir / "runs", root_dir / "runtime" / "runs"]
+output_bundles = []
+seen = set()
+for runs_root in candidate_runs_roots:
+    if not runs_root.exists():
+        continue
+    for bundle in runs_root.glob("run_mvp_*/output_bundle"):
+        if not bundle.is_dir():
+            continue
+        key = str(bundle.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        output_bundles.append(bundle.resolve())
+
+if not output_bundles:
+    raise SystemExit(2)
+
+latest_bundle = sorted(output_bundles, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+run_summary = latest_bundle / "technical output" / "run_summary.json"
+mapped_output = latest_bundle / "technical output" / "mapped_output.jsonl"
+if not run_summary.exists() or not mapped_output.exists():
+    raise SystemExit(3)
+
+payload = json.loads(run_summary.read_text(encoding="utf-8"))
+project_dir_raw = str(payload.get("project_dir") or "").strip()
+if not project_dir_raw:
+    raise SystemExit(4)
+
+if project_dir_raw.startswith("/runtime/"):
+    project_dir = runtime_dir / project_dir_raw.removeprefix("/runtime/")
+else:
+    project_dir = Path(project_dir_raw).expanduser().resolve()
+
+print(f"INPUT_JSON={mapped_output}")
+print(f"PROJECT_DIR={project_dir}")
+print(f"OUTPUT_DIR={latest_bundle / 'senzing_audit'}")
+PY
+  )" || {
+    echo "ERROR: unable to auto-discover latest run. Set INPUT_JSON and PROJECT_DIR explicitly." >&2
+    exit 2
+  }
+
+  while IFS= read -r line; do
+    case "$line" in
+      INPUT_JSON=*) INPUT_JSON="${line#INPUT_JSON=}" ;;
+      PROJECT_DIR=*) PROJECT_DIR="${line#PROJECT_DIR=}" ;;
+      OUTPUT_DIR=*) OUTPUT_DIR="${line#OUTPUT_DIR=}" ;;
+    esac
+  done <<< "$AUTOFILL"
+
+  echo "Auto-discovered latest run inputs:"
+  echo "  INPUT_JSON=$INPUT_JSON"
+  echo "  PROJECT_DIR=$PROJECT_DIR"
+  echo "  OUTPUT_DIR=$OUTPUT_DIR"
 fi
 
 if [[ -z "$PROJECT_DIR" && -z "$SNAPSHOT_CSV" ]]; then
