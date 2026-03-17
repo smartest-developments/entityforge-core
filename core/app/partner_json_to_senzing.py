@@ -33,6 +33,7 @@ import argparse
 import difflib
 import datetime as dt
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -756,13 +757,15 @@ def main() -> int:
 
     field_map = infer_field_map(sample_records, args.fuzzy_cutoff)
 
-    print("Inferred field map:")
-    for canonical in sorted(CANONICAL_FIELDS.keys()):
-        source_key = field_map.get(canonical, "<NOT_FOUND>")
-        print(f"  - {canonical}: {source_key}")
+    suppress_field_map_log = os.environ.get("SUPPRESS_INFERRED_FIELD_MAP_LOG", "").strip() == "1"
+    if not suppress_field_map_log:
+        print("Inferred field map:")
+        for canonical in sorted(CANONICAL_FIELDS.keys()):
+            source_key = field_map.get(canonical, "<NOT_FOUND>")
+            print(f"  - {canonical}: {source_key}")
 
     unresolved = [field for field in CANONICAL_FIELDS if field not in field_map]
-    if unresolved:
+    if unresolved and not suppress_field_map_log:
         print("\nUnresolved canonical fields (no confident source match):")
         for field in unresolved:
             print(f"  - {field}")

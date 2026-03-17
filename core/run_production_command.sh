@@ -81,6 +81,8 @@ PY
 fi
 
 PIPELINE_CMD=(
+  env
+  SUPPRESS_INFERRED_FIELD_MAP_LOG=1
   python3 "$ROOT_DIR/app/run_mvp_with_auto_diagnosis.py"
   --input-json "$PIPELINE_INPUT_JSON"
   --execution-mode "$EXECUTION_MODE"
