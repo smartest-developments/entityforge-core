@@ -32,6 +32,17 @@ def to_text(value: object) -> str | None:
     return text if text else None
 
 
+def effective_cluster_id(row: RecordClusterRow) -> str:
+    """Return the cluster identifier to export for audit/report files.
+
+    When source cluster id is missing, keep the row traceable by assigning
+    a deterministic placeholder based on the generated record id.
+    """
+    if row.cluster_id:
+        return row.cluster_id
+    return f"non-match-{row.record_id}"
+
+
 def infer_mapper_field_map(
     input_path: Path,
     array_key: str | None,
@@ -132,7 +143,7 @@ def write_record_id_cluster_csv(
             if skip_empty_cluster_id and not row.cluster_id:
                 skipped_rows += 1
                 continue
-            writer.writerow([row.record_id, row.cluster_id or ""])
+            writer.writerow([row.record_id, effective_cluster_id(row)])
             written_rows += 1
     return written_rows, skipped_rows
 
@@ -152,7 +163,7 @@ def write_truthset_key_csv(
             if skip_empty_cluster_id and not row.cluster_id:
                 skipped_rows += 1
                 continue
-            writer.writerow([row.data_source, row.record_id, row.cluster_id or ""])
+            writer.writerow([row.data_source, row.record_id, effective_cluster_id(row)])
             written_rows += 1
     return written_rows, skipped_rows
 

@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from record_cluster_exports import iter_record_cluster_rows
+from record_cluster_exports import effective_cluster_id, iter_record_cluster_rows
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -457,8 +457,9 @@ def main() -> int:
                 if args.skip_empty_cluster_id and not row.cluster_id:
                     skipped_rows += 1
                     continue
-                simple_writer.writerow([row.record_id, row.cluster_id or ""])
-                truth_writer.writerow([row.data_source, row.record_id, row.cluster_id or ""])
+                cluster_id_value = effective_cluster_id(row)
+                simple_writer.writerow([row.record_id, cluster_id_value])
+                truth_writer.writerow([row.data_source, row.record_id, cluster_id_value])
                 written_simple += 1
                 written_truth += 1
     except Exception as err:  # pylint: disable=broad-exception-caught

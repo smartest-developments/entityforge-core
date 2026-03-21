@@ -701,6 +701,85 @@ def copy_if_exists(source: Path, destination: Path) -> bool:
     return True
 
 
+def copy_streamlit_app_template(mvp_root: Path, streamlit_dir: Path) -> None:
+    template_dir = mvp_root / "dashboard" / "streamlit_app"
+    if not template_dir.exists():
+        return
+    streamlit_dir.mkdir(parents=True, exist_ok=True)
+    for filename in ("app.py", "requirements.txt", "README.md"):
+        source_path = template_dir / filename
+        if source_path.exists():
+            shutil.copy2(source_path, streamlit_dir / filename)
+
+
+def build_dashboard_basic_text(output_run_dir: Path) -> Path | None:
+    dashboard_dir = output_run_dir / "dashboard_web"
+    dashboard_data_json = dashboard_dir / "management_dashboard_data.json"
+    if not dashboard_data_json.exists():
+        return None
+
+    try:
+        payload = json.loads(dashboard_data_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    summary = payload.get("summary", {})
+    runs = payload.get("runs", [])
+
+    basic_dir = output_run_dir / "dashboard_basic"
+    basic_dir.mkdir(parents=True, exist_ok=True)
+    basic_txt = basic_dir / "results.txt"
+
+    lines: list[str] = []
+    lines.append("DASHBOARD BASIC RESULTS")
+    lines.append("")
+    lines.append("SUMMARY")
+    for key in [
+        "runs_total",
+        "quality_runs_total",
+        "successful_runs",
+        "failed_runs",
+        "incomplete_runs",
+        "latest_run_id",
+        "avg_pair_precision_pct",
+        "avg_pair_recall_pct",
+        "records_input_total",
+        "matched_pairs_total",
+    ]:
+        if key in summary:
+            lines.append(f"{key}: {summary.get(key)}")
+
+    lines.append("")
+    lines.append("RUNS")
+    if not runs:
+        lines.append("No runs in dashboard payload.")
+    else:
+        for run in runs:
+            lines.append(f"run_id: {run.get('run_id', '')}")
+            for key in [
+                "run_datetime",
+                "run_status",
+                "source_input_name",
+                "records_input",
+                "records_input_loaded",
+                "records_exported",
+                "matched_records",
+                "matched_pairs",
+                "pair_precision_pct",
+                "pair_recall_pct",
+                "their_entities_formed",
+                "our_entities_formed",
+                "quality_available",
+                "overall_ok",
+            ]:
+                if key in run:
+                    lines.append(f"{key}: {run.get(key)}")
+            lines.append("")
+
+    basic_txt.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return basic_txt
+
+
 def build_run_dashboard_bundle(
     mvp_root: Path,
     run_dir: Path,
@@ -734,6 +813,7 @@ def build_run_dashboard_bundle(
             str(streamlit_assets_dir),
         ]
         run_command(command, mvp_root)
+        copy_streamlit_app_template(mvp_root, output_run_dir / "dashboard_streamlit_app")
     finally:
         shutil.rmtree(build_root, ignore_errors=True)
     copied: dict[str, str] = {}
@@ -1240,6 +1320,9 @@ def main() -> int:
                     output_folder_name=output_folder_name,
                 )
             )
+            basic_results_txt = build_dashboard_basic_text(output_run_dir)
+            if basic_results_txt is not None:
+                copied["dashboard_basic.results.txt"] = str(basic_results_txt.resolve())
         except subprocess.CalledProcessError as exc:
             print(
                 f"ERROR: dashboard refresh/test suite failed (exit code {exc.returncode}).",
@@ -1255,6 +1338,7 @@ def main() -> int:
         print(f"Mapped JSONL: {copied.get('mapped_output.jsonl')}")
         print(f"Run dashboard (web): {copied.get('dashboard_web')}")
         print(f"Run dashboard (Streamlit): {copied.get('dashboard_streamlit_app')}")
+        print(f"Run dashboard (basic txt): {copied.get('dashboard_basic.results.txt')}")
         print(f"Management summary (md): {copied.get('management_summary.md')}")
         print(f"Ground truth quality (md): {copied.get('ground_truth_match_quality.md')}")
         print(f"Run summary (technical): {copied.get('run_summary.json')}")
