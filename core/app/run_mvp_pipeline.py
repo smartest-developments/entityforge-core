@@ -723,58 +723,181 @@ def build_dashboard_basic_text(output_run_dir: Path) -> Path | None:
     except (json.JSONDecodeError, OSError):
         return None
 
-    summary = payload.get("summary", {})
-    runs = payload.get("runs", [])
+    runs = payload.get("runs", []) if isinstance(payload.get("runs"), list) else []
+
+    def as_number(value: object) -> float | None:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        return None
+
+    def fmt_int(value: object) -> str:
+        num = as_number(value)
+        if num is None:
+            return "n/a"
+        return f"{int(round(num)):,}"
+
+    def fmt_pct(value: object) -> str:
+        num = as_number(value)
+        if num is None:
+            return "n/a"
+        return f"{num:.2f}%"
+
+    def fmt_signed_pct(value: object) -> str:
+        num = as_number(value)
+        if num is None:
+            return "n/a"
+        sign = "+" if num > 0 else ""
+        return f"{sign}{num:.2f}%"
+
+    def fmt_approx_hours_from_minutes(value: object) -> str:
+        num = as_number(value)
+        if num is None:
+            return "n/a"
+        rounded_hours = max(1, int(round(num / 60.0)))
+        if rounded_hours == 1:
+            return "~1 hour"
+        return f"~{rounded_hours} hours"
+
+    def fmt_approx_records(value: object) -> str:
+        num = as_number(value)
+        if num is None:
+            return "n/a"
+        if 950000 <= num <= 1050000:
+            return "~1 million"
+        if num >= 1000000:
+            return f"~{(num / 1000000):.2f} million"
+        return fmt_int(num)
+
+    def ratio_pct(num: object, den: object) -> float | None:
+        numerator = as_number(num)
+        denominator = as_number(den)
+        if numerator is None or denominator is None or denominator <= 0:
+            return None
+        return (numerator / denominator) * 100.0
+
+    def has_renderable_metrics(run: dict[str, object]) -> bool:
+        input_records = as_number(run.get("records_input"))
+        our_entities = as_number(run.get("our_entities_formed")) or as_number(run.get("our_resolved_entities"))
+        their_entities = as_number(run.get("their_entities_formed")) or as_number(run.get("resolved_entities"))
+        our_match_pct = as_number(run.get("our_match_pct"))
+        their_match_pct = as_number(run.get("their_match_pct"))
+        return input_records is not None and any(
+            value is not None for value in (our_entities, their_entities, our_match_pct, their_match_pct)
+        )
+
+    def get_selected_run() -> dict[str, object] | None:
+        renderable_runs = [run for run in runs if isinstance(run, dict) and has_renderable_metrics(run)]
+        if renderable_runs:
+            return renderable_runs[0]
+        plain_runs = [run for run in runs if isinstance(run, dict)]
+        return plain_runs[0] if plain_runs else None
+
+    def to_distribution(distribution: object) -> list[tuple[int, int]]:
+        if not isinstance(distribution, dict):
+            return []
+        rows: list[tuple[int, int]] = []
+        for key, value in distribution.items():
+            try:
+                size = int(str(key))
+            except ValueError:
+                continue
+            count_num = as_number(value)
+            if count_num is None:
+                continue
+            rows.append((size, int(round(count_num))))
+        rows.sort(key=lambda item: item[0])
+        return [row for row in rows if row[0] <= 30]
+
+    def prettify_match_key(raw_key: object) -> str:
+        if not isinstance(raw_key, str):
+            return ""
+        text = re.sub(r"TAX[_-]?ID", "<<TAXIDTOKEN>>", raw_key, flags=re.IGNORECASE)
+        text = re.sub(r"[+_-]+", ", ", text)
+        text = text.replace("<<TAXIDTOKEN>>", "Tax ID")
+        text = re.sub(r"\s*,\s*", ", ", text)
+        text = re.sub(r"(,\s*){2,}", ", ", text)
+        text = re.sub(r"^,\s*|\s*,$", "", text)
+        return text.strip()
 
     basic_dir = output_run_dir / "dashboard_basic"
     basic_dir.mkdir(parents=True, exist_ok=True)
     basic_txt = basic_dir / "results.txt"
 
     lines: list[str] = []
-    lines.append("DASHBOARD BASIC RESULTS")
-    lines.append("")
-    lines.append("SUMMARY")
-    for key in [
-        "runs_total",
-        "quality_runs_total",
-        "successful_runs",
-        "failed_runs",
-        "incomplete_runs",
-        "latest_run_id",
-        "avg_pair_precision_pct",
-        "avg_pair_recall_pct",
-        "records_input_total",
-        "matched_pairs_total",
-    ]:
-        if key in summary:
-            lines.append(f"{key}: {summary.get(key)}")
+    run = get_selected_run()
+    if not run:
+        lines.append("Input Records: n/a")
+        lines.append("Full Execution Time (hours, approx): n/a")
+        lines.append("Their Match Gain/Loss %: n/a")
+        basic_txt.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        return basic_txt
 
+    input_records = as_number(run.get("records_input"))
+    our_entities = as_number(run.get("our_entities_formed")) or as_number(run.get("our_resolved_entities"))
+    their_entities = as_number(run.get("their_entities_formed")) or as_number(run.get("resolved_entities"))
+    our_grouped_members = as_number(run.get("our_grouped_members"))
+    their_grouped_members = as_number(run.get("their_grouped_members"))
+    our_match_pct = as_number(run.get("our_match_pct"))
+    their_match_pct = as_number(run.get("their_match_pct"))
+    if our_match_pct is None:
+        our_match_pct = ratio_pct(our_grouped_members, input_records)
+    if their_match_pct is None:
+        their_match_pct = ratio_pct(their_grouped_members, input_records)
+    execution_minutes = as_number(run.get("execution_minutes"))
+    execution_minutes_estimated = as_number(run.get("execution_minutes_estimated"))
+    their_match_gain_loss_pct = as_number(run.get("their_match_gain_loss_pct"))
+
+    lines.append(f"Input Records: {fmt_approx_records(run.get('records_input'))}")
+    lines.append(
+        "Full Execution Time (hours, approx): "
+        f"{fmt_approx_hours_from_minutes(execution_minutes if execution_minutes is not None else execution_minutes_estimated)}"
+    )
+    lines.append(f"Their Match Gain/Loss %: {fmt_signed_pct(their_match_gain_loss_pct)}")
     lines.append("")
-    lines.append("RUNS")
-    if not runs:
-        lines.append("No runs in dashboard payload.")
+
+    lines.append("Our Metrics")
+    lines.append(f"Match %: {fmt_pct(our_match_pct)}")
+    lines.append(f"Entities Created: {fmt_int(our_entities)}")
+    lines.append("")
+
+    lines.append("Their Metrics")
+    lines.append(f"Match %: {fmt_pct(their_match_pct)}")
+    lines.append(f"Entities Created: {fmt_int(their_entities)}")
+    lines.append("")
+
+    lines.append("Our Entity Size Distribution")
+    our_dist = to_distribution(run.get("our_entity_size_distribution"))
+    if not our_dist:
+        lines.append("n/a")
     else:
-        for run in runs:
-            lines.append(f"run_id: {run.get('run_id', '')}")
-            for key in [
-                "run_datetime",
-                "run_status",
-                "source_input_name",
-                "records_input",
-                "records_input_loaded",
-                "records_exported",
-                "matched_records",
-                "matched_pairs",
-                "pair_precision_pct",
-                "pair_recall_pct",
-                "their_entities_formed",
-                "our_entities_formed",
-                "quality_available",
-                "overall_ok",
-            ]:
-                if key in run:
-                    lines.append(f"{key}: {run.get(key)}")
-            lines.append("")
+        lines.extend([f"size={size}: entity_count={count:,}" for size, count in our_dist])
+    lines.append("")
+
+    lines.append("Their Entity Size Distribution")
+    their_dist = to_distribution(run.get("entity_size_distribution"))
+    if not their_dist:
+        lines.append("n/a")
+    else:
+        lines.extend([f"size={size}: entity_count={count:,}" for size, count in their_dist])
+    lines.append("")
+
+    lines.append("Their Top Match Keys")
+    top_keys = run.get("top_match_keys")
+    top_key_rows: list[tuple[str, int]] = []
+    if isinstance(top_keys, list):
+        for item in top_keys:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                key_label = prettify_match_key(item[0])
+                count_num = as_number(item[1])
+                if key_label and count_num is not None:
+                    top_key_rows.append((key_label, int(round(count_num))))
+    if not top_key_rows:
+        lines.append("No match keys available for this run.")
+    else:
+        top10_total = sum(count for _, count in top_key_rows)
+        for index, (label, count) in enumerate(top_key_rows, start=1):
+            share = (count / top10_total * 100.0) if top10_total > 0 else 0.0
+            lines.append(f"#{index} {label} | {share:.1f}%")
 
     basic_txt.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return basic_txt
